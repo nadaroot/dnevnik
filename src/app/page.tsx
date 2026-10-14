@@ -78,7 +78,7 @@ export default function HomePage() {
   const diaryDataRef = useRef<DiaryData | null>(null);
   const settingsRef = useRef<AppSettings | null>(null);
   const savedAccountsRef = useRef<SavedAccount[]>([]);
-  const lastSyncTimeRef = useRef<number>(Date.now());
+  const lastSyncTimeRef = useRef<number>(0);
 
   diaryDataRef.current = diaryData;
   settingsRef.current = settings;
@@ -392,6 +392,21 @@ export default function HomePage() {
           saveSettings(updatedSettings);
         }
 
+        // Обновляем запись активного профиля в сохраненных аккаунтах
+        const activeAcc = currentAccounts.find(
+          (a) => a.login?.toLowerCase() === currentSettings.login?.toLowerCase()
+        );
+        if (activeAcc) {
+          saveAccount({
+            ...activeAcc,
+            sessionCookie: resJson.sessionCookie || activeAcc.sessionCookie,
+            studentName: freshData.profile.studentName || activeAcc.studentName,
+            overallGpa: freshData.overallGpa,
+            lastSync: syncTimeStr,
+          });
+          setSavedAccounts(loadSavedAccounts());
+        }
+
         if (isManual) {
           showToast('Оценки и средний балл обновлены', 'success');
         }
@@ -404,10 +419,22 @@ export default function HomePage() {
     [showToast]
   );
 
-  // Фоновый планировщик: строго каждые 10 минут + проверка при возвращении на вкладку
+  // Фоновый планировщик: строго каждые 10 минут + проверка при старте PWA и возвращении на вкладку
   useEffect(() => {
     // 10 минут = 600 000 мс
     const TEN_MINUTES_MS = 600_000;
+
+    // Для автономного PWA на рабочем столе (iOS / Android) сразу инициируем фоновую проверку свежести
+    const isStandalone =
+      typeof window !== 'undefined' &&
+      (window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as unknown as { standalone?: boolean }).standalone === true);
+
+    const initTimer = setTimeout(() => {
+      if (isStandalone || Date.now() - lastSyncTimeRef.current >= TEN_MINUTES_MS) {
+        runAutoSync(false);
+      }
+    }, 1500);
 
     const intervalId = setInterval(() => {
       runAutoSync(false);
@@ -426,6 +453,7 @@ export default function HomePage() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      clearTimeout(initTimer);
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
@@ -503,6 +531,19 @@ export default function HomePage() {
       setSettings(newSettings);
       saveSettings(newSettings);
 
+      const syncTimeStr = new Date().toLocaleTimeString('ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      saveAccount({
+        ...account,
+        sessionCookie: resJson.sessionCookie || account.sessionCookie,
+        studentName: receivedData.profile.studentName || account.studentName,
+        overallGpa: receivedData.overallGpa,
+        lastSync: syncTimeStr,
+      });
+      setSavedAccounts(loadSavedAccounts());
+
       showToast(`Вы вошли как ${receivedData.profile.studentName}`);
     } catch (err: any) {
       showToast(err.message || 'Ошибка смены профиля', 'error');
@@ -522,6 +563,140 @@ export default function HomePage() {
     removeAccount(id);
     setSavedAccounts(loadSavedAccounts());
     showToast('Профиль удален из сохраненных');
+  };
+
+  // Глобальная синхронизация всех сохраненных аккаунтов для администратора
+  const handleGlobalResyncAllAccounts = async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    showToast('Запуск глобальной синхронизации аккаунтов...', 'success');
+
+    try {
+      const accountsToSync = loadSavedAccounts();
+      const currentActiveLogin = (settingsRef.current?.login || diaryDataRef.current?.profile?.login || '').toLowerCase();
+
+      // Если в сохраненных аккаунтах пусто, синхронизируем хотя бы текущий активный сеанс
+      if (accountsToSync.length === 0) {
+        await runAutoSync(true);
+        return;
+      }
+
+      let successCount = 0;
+
+      for (const acc of accountsToSync) {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/eschools/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              login: acc.login,
+              password: acc.password,
+              subdomain: 'e-schools.by',
+              sessionCookie: acc.sessionCookie,
+              quarterNumber: diaryDataRef.current?.currentQuarter || 1,
+            }),
+          });
+
+          if (!response.ok) continue;
+
+          const resJson = await response.json().catch(() => ({}));
+          if (!resJson.success || !resJson.data) continue;
+
+          const freshData: DiaryData = resJson.data;
+
+          // Динамический пересчет среднего балла каждого предмета
+          freshData.subjects.forEach((s) => {
+            const validGrades = (s.grades || []).filter(
+              (g) => typeof g.value === 'number' && g.value > 0
+            );
+            if (validGrades.length > 0) {
+              s.currentAverage = Number(
+                (validGrades.reduce((sum, g) => sum + g.value, 0) / validGrades.length).toFixed(2)
+              );
+            }
+          });
+
+          // Пересчет общего GPA
+          const gradedSubjects = freshData.subjects.filter(
+            (s) => s.isGraded !== false && s.currentAverage > 0
+          );
+          if (gradedSubjects.length > 0) {
+            freshData.overallGpa = Number(
+              (
+                gradedSubjects.reduce((sum, s) => sum + s.currentAverage, 0) /
+                gradedSubjects.length
+              ).toFixed(2)
+            );
+          }
+
+          const syncTimeStr = new Date().toLocaleTimeString('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+
+          // Обновляем запись аккаунта в локальном хранилище
+          saveAccount({
+            ...acc,
+            sessionCookie: resJson.sessionCookie || acc.sessionCookie,
+            studentName: freshData.profile.studentName || acc.studentName,
+            overallGpa: freshData.overallGpa,
+            lastSync: syncTimeStr,
+          });
+
+          // Если это текущий активный профиль — обновляем стейт дневника
+          if (acc.login.toLowerCase() === currentActiveLogin) {
+            const localTargets = loadCustomTargets();
+            const allTargets = {
+              ...localTargets,
+              ...(resJson.serverTargets || {}),
+            };
+
+            if (allTargets && freshData.subjects) {
+              freshData.subjects = freshData.subjects.map((s) => ({
+                ...s,
+                targetGrade: allTargets[s.id] || s.targetGrade,
+              }));
+            }
+
+            freshData.profile.lastSync = syncTimeStr;
+            lastSyncTimeRef.current = Date.now();
+
+            setDiaryData(freshData);
+            saveDiaryData(freshData);
+            prevSubjectsRef.current = freshData.subjects || [];
+
+            if (resJson.sessionCookie && resJson.sessionCookie !== settingsRef.current?.sessionCookie) {
+              const updatedSettings = {
+                ...settingsRef.current!,
+                sessionCookie: resJson.sessionCookie,
+              };
+              setSettings(updatedSettings);
+              saveSettings(updatedSettings);
+            }
+          }
+
+          successCount++;
+        } catch (itemErr) {
+          console.error(`Ошибка синхронизации аккаунта ${acc.login}:`, itemErr);
+        }
+      }
+
+      setSavedAccounts(loadSavedAccounts());
+
+      if (successCount > 0) {
+        showToast(
+          `Глобальный ресинк завершен: ${successCount} из ${accountsToSync.length} обновлено`,
+          'success'
+        );
+      } else {
+        showToast('Не удалось обновить данные аккаунтов', 'error');
+      }
+    } catch (err: any) {
+      console.error('Ошибка глобального ресинка:', err);
+      showToast(err.message || 'Ошибка глобальной синхронизации', 'error');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // Ручная установка цели по предмету (с синхронизацией на сервере)
@@ -833,7 +1008,7 @@ export default function HomePage() {
               savedAccounts={savedAccounts}
               onSwitchAccount={handleSwitchAccount}
               onRemoveAccount={handleRemoveAccount}
-              onForceResync={() => showToast('Данные синхронизированы')}
+              onForceResync={handleGlobalResyncAllAccounts}
               isSyncing={isSyncing}
               diaryData={diaryData}
             />
@@ -846,6 +1021,8 @@ export default function HomePage() {
               onLogout={handleLogout}
               onOpenAccounts={() => setIsAccountsOpen(true)}
               accountsCount={savedAccounts.length || 1}
+              onManualSync={() => runAutoSync(true)}
+              isSyncing={isBackgroundChecking || isSyncing}
             />
           )}
         </div>
