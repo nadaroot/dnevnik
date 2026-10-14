@@ -155,18 +155,67 @@ export function loadCustomTargets(): Record<string, number> {
   return settings.customTargets || {};
 }
 
-export function saveCustomTarget(subjectId: string, target: number): void {
+export async function fetchServerTargets(login: string): Promise<Record<string, number>> {
+  if (!login || typeof window === 'undefined') return loadCustomTargets();
+  try {
+    const res = await fetch(`/api/eschools/targets?login=${encodeURIComponent(login)}`);
+    if (!res.ok) return loadCustomTargets();
+    const data = await res.json();
+    if (data.success && data.targets) {
+      const settings = loadSettings();
+      const merged = { ...(settings.customTargets || {}), ...data.targets };
+      saveSettings({ ...settings, customTargets: merged });
+      return merged;
+    }
+  } catch (err) {
+    console.error('Ошибка загрузки целей с сервера:', err);
+  }
+  return loadCustomTargets();
+}
+
+export async function syncCustomTargetToServer(
+  login: string,
+  subjectId: string,
+  target?: number | null
+): Promise<void> {
+  if (!login || typeof window === 'undefined') return;
+  try {
+    await fetch('/api/eschools/targets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login,
+        subjectId,
+        target: target || null,
+      }),
+    });
+  } catch (err) {
+    console.error('Ошибка синхронизации цели с сервером:', err);
+  }
+}
+
+export function saveCustomTarget(subjectId: string, target: number, userLogin?: string): void {
   const settings = loadSettings();
   const currentTargets = settings.customTargets || {};
   const updated = { ...currentTargets, [subjectId]: target };
   saveSettings({ ...settings, customTargets: updated });
+
+  const activeLogin = userLogin || settings.login;
+  if (activeLogin) {
+    syncCustomTargetToServer(activeLogin, subjectId, target);
+  }
 }
 
-export function removeCustomTarget(subjectId: string): void {
+export function removeCustomTarget(subjectId: string, userLogin?: string): void {
   const settings = loadSettings();
   const currentTargets = { ...(settings.customTargets || {}) };
   delete currentTargets[subjectId];
   saveSettings({ ...settings, customTargets: currentTargets });
+
+  const activeLogin = userLogin || settings.login;
+  if (activeLogin) {
+    syncCustomTargetToServer(activeLogin, subjectId, null);
+  }
 }
 
 export function clearAllData(): void {

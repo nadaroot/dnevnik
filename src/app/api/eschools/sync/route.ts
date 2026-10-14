@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ESchoolsClient } from '@/lib/eschools/client';
+import fs from 'fs';
+import path from 'path';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -74,11 +76,40 @@ export async function POST(req: NextRequest) {
       activeSession = await client.login({ login, password, subdomain });
     }
 
-    const diaryData = await client.getDiaryData(Number(quarterNumber));
+    let diaryData;
+    try {
+      diaryData = await client.getDiaryData(Number(quarterNumber));
+    } catch (fetchErr: any) {
+      // Если сессия истекла или недействительна, и переданы логин/пароль — автоматически переавторизуемся
+      if (login && password) {
+        console.log('Повторная авторизация на e-schools.by из-за истекшей сессии...');
+        activeSession = await client.login({ login, password, subdomain });
+        diaryData = await client.getDiaryData(Number(quarterNumber));
+      } else {
+        throw fetchErr;
+      }
+    }
+
     if (login) {
       diaryData.profile.login = login;
       if (login.toLowerCase() === 'nadaroot') {
         diaryData.profile.isAdmin = true;
+      }
+    }
+
+    // Подгружаем сохраненные на сервере цели для пользователя
+    let serverTargets: Record<string, number> = {};
+    if (login) {
+      try {
+        const dataPath = path.join(process.cwd(), 'data', 'targets.json');
+        const fallbackPath = '/tmp/eschools_targets.json';
+        const targetPath = fs.existsSync(dataPath) ? dataPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+        if (targetPath) {
+          const all = JSON.parse(fs.readFileSync(targetPath, 'utf-8'));
+          serverTargets = all[login.toLowerCase()] || {};
+        }
+      } catch (err) {
+        console.error('Ошибка подгрузки целей из файла:', err);
       }
     }
 
@@ -87,6 +118,7 @@ export async function POST(req: NextRequest) {
         success: true,
         data: diaryData,
         sessionCookie: activeSession,
+        serverTargets,
         message: 'Данные успешно загружены из e-schools.by',
       },
       { headers: CORS_HEADERS }

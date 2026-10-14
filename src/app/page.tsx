@@ -39,12 +39,14 @@ import {
   loadCustomTargets,
   saveCustomTarget,
   removeCustomTarget,
+  fetchServerTargets,
 } from '@/lib/eschools/storage';
 import {
   GraduationCap,
   CheckCircle2,
   AlertCircle,
   Users,
+  RefreshCw,
 } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -69,8 +71,18 @@ export default function HomePage() {
     return calculateProjectedGpa(diaryData.subjects, diaryData.overallGpa);
   }, [diaryData]);
 
-  // Ref для отслеживания предыдущих отметок при 5-минутной автопроверке
+  // Ref для отслеживания предыдущих отметок при автопроверке
   const prevSubjectsRef = useRef<SubjectItem[]>([]);
+
+  // Стабильные ссылки для фонового 10-минутного автообновления
+  const diaryDataRef = useRef<DiaryData | null>(null);
+  const settingsRef = useRef<AppSettings | null>(null);
+  const savedAccountsRef = useRef<SavedAccount[]>([]);
+  const lastSyncTimeRef = useRef<number>(Date.now());
+
+  diaryDataRef.current = diaryData;
+  settingsRef.current = settings;
+  savedAccountsRef.current = savedAccounts;
 
   const showToast = useCallback((text: string, type: 'success' | 'error' = 'success') => {
     setToastMessage({ text, type });
@@ -112,15 +124,44 @@ export default function HomePage() {
 
       const receivedData: DiaryData = resJson.data;
 
-      // Применяем сохраненные ручные цели
-      const storedTargets = loadCustomTargets();
-      if (storedTargets && receivedData.subjects) {
-        receivedData.subjects = receivedData.subjects.map((s) => ({
-          ...s,
-          targetGrade: storedTargets[s.id] || s.targetGrade,
-        }));
+      // Загружаем и синхронизируем цели с сервера
+      let serverTargets = resJson.serverTargets || {};
+      if (Object.keys(serverTargets).length === 0 && credentials.login) {
+        try {
+          serverTargets = await fetchServerTargets(credentials.login);
+        } catch {}
       }
 
+      const storedTargets = loadCustomTargets();
+      const allTargets = { ...storedTargets, ...serverTargets };
+
+      if (receivedData.subjects) {
+        // Применяем цели и пересчитываем средний балл каждого предмета
+        receivedData.subjects = receivedData.subjects.map((s) => {
+          const validGrades = (s.grades || []).filter(
+            (g) => typeof g.value === 'number' && g.value > 0
+          );
+          const calculatedAvg = validGrades.length > 0
+            ? Number((validGrades.reduce((sum, g) => sum + g.value, 0) / validGrades.length).toFixed(2))
+            : s.currentAverage;
+
+          return {
+            ...s,
+            currentAverage: calculatedAvg,
+            targetGrade: allTargets[s.id] || s.targetGrade,
+          };
+        });
+
+        // Пересчитываем общий GPA по всем оцениваемым предметам
+        const graded = receivedData.subjects.filter((s) => s.isGraded !== false && s.currentAverage > 0);
+        if (graded.length > 0) {
+          receivedData.overallGpa = Number(
+            (graded.reduce((sum, s) => sum + s.currentAverage, 0) / graded.length).toFixed(2)
+          );
+        }
+      }
+
+      lastSyncTimeRef.current = Date.now();
       setDiaryData(receivedData);
       saveDiaryData(receivedData);
       prevSubjectsRef.current = receivedData.subjects || [];
@@ -181,6 +222,26 @@ export default function HomePage() {
         }
         setDiaryData(saved);
         prevSubjectsRef.current = saved.subjects || [];
+
+        // В фоне проверяем и синхронизируем цели с сервера
+        if (currentSettings.login) {
+          fetchServerTargets(currentSettings.login)
+            .then((serverTargets) => {
+              if (serverTargets && Object.keys(serverTargets).length > 0) {
+                setDiaryData((prev) => {
+                  if (!prev || !prev.subjects) return prev;
+                  const merged = prev.subjects.map((s) => ({
+                    ...s,
+                    targetGrade: serverTargets[s.id] || s.targetGrade,
+                  }));
+                  const updated = { ...prev, subjects: merged };
+                  saveDiaryData(updated);
+                  return updated;
+                });
+              }
+            })
+            .catch(() => {});
+        }
       } else if (loadedAccounts.length > 0 && typeof window !== 'undefined') {
         const explicitLogout = sessionStorage.getItem('explicit_logout');
         if (!explicitLogout && loadedAccounts[0].login && loadedAccounts[0].password) {
@@ -197,32 +258,44 @@ export default function HomePage() {
     }
   }, [handleLogin]);
 
-  // Тихая фоновая автопроверка раз в 5 минут
-  useEffect(() => {
-    if (!diaryData || !settings?.login) return;
+  // Функция фонового обновления данных и пересчета среднего балла
+  const runAutoSync = useCallback(
+    async (isManual: boolean = false) => {
+      const currentSettings = settingsRef.current;
+      const currentDiary = diaryDataRef.current;
+      const currentAccounts = savedAccountsRef.current;
 
-    const intervalId = setInterval(async () => {
+      if (!currentDiary || !currentSettings?.login) return;
+
       try {
         setIsBackgroundChecking(true);
+
+        // Ищем пароль в сохраненных аккаунтах для надежного релогина при протухании куки
+        const activeAccount = currentAccounts.find(
+          (a) => a.login?.toLowerCase() === currentSettings.login?.toLowerCase()
+        );
+        const password = activeAccount?.password;
+
         const response = await fetch(`${API_BASE_URL}/api/eschools/sync`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            login: settings.login,
-            subdomain: settings.subdomain,
-            sessionCookie: settings.sessionCookie,
-            quarterNumber: diaryData?.currentQuarter || 1,
+            login: currentSettings.login,
+            password: password,
+            subdomain: currentSettings.subdomain || 'e-schools.by',
+            sessionCookie: activeAccount?.sessionCookie || currentSettings.sessionCookie,
+            quarterNumber: currentDiary?.currentQuarter || 1,
           }),
         });
 
         if (!response.ok) return;
-        const resJson = await response.json();
+        const resJson = await response.json().catch(() => ({}));
         if (!resJson.success || !resJson.data) return;
 
         const freshData: DiaryData = resJson.data;
         const prevSubs = prevSubjectsRef.current || [];
 
-        // Сравниваем отметки
+        // Сравниваем отметки по каждому предмету
         const prevMarksMap = new Map<string, Set<string>>();
         prevSubs.forEach((s) => {
           prevMarksMap.set(s.id, new Set((s.grades || []).map((g) => g.id)));
@@ -232,7 +305,7 @@ export default function HomePage() {
         freshData.subjects.forEach((s) => {
           const prevSet = prevMarksMap.get(s.id);
           if (prevSet) {
-            s.grades.forEach((g) => {
+            (s.grades || []).forEach((g) => {
               if (!prevSet.has(g.id)) {
                 newGradesFound.push({ subject: s.name, value: g.value });
               }
@@ -243,9 +316,8 @@ export default function HomePage() {
         // Уведомления о новых отметках
         if (newGradesFound.length > 0) {
           newGradesFound.forEach((ng) => {
-            showToast(`Новая отметка: ${ng.value} по ${ng.subject}`, 'success');
+            showToast(`Новая отметка: ${ng.value} по предмету ${ng.subject}`, 'success');
 
-            // Системное браузерное уведомление (если разрешено)
             if (
               typeof window !== 'undefined' &&
               'Notification' in window &&
@@ -259,27 +331,105 @@ export default function HomePage() {
           });
         }
 
-        // Сохраняем ручные цели
-        const storedTargets = loadCustomTargets();
-        if (storedTargets && freshData.subjects) {
+        // Пересчитываем средний балл каждого предмета на основе полученных отметок
+        freshData.subjects.forEach((s) => {
+          const validGrades = (s.grades || []).filter(
+            (g) => typeof g.value === 'number' && g.value > 0
+          );
+          if (validGrades.length > 0) {
+            s.currentAverage = Number(
+              (validGrades.reduce((sum, g) => sum + g.value, 0) / validGrades.length).toFixed(2)
+            );
+          }
+        });
+
+        // Пересчитываем общий GPA по всем оцениваемым предметам
+        const gradedSubjects = freshData.subjects.filter(
+          (s) => s.isGraded !== false && s.currentAverage > 0
+        );
+        if (gradedSubjects.length > 0) {
+          freshData.overallGpa = Number(
+            (
+              gradedSubjects.reduce((sum, s) => sum + s.currentAverage, 0) /
+              gradedSubjects.length
+            ).toFixed(2)
+          );
+        }
+
+        // Применяем цели: берем серверные цели + локальные
+        const localTargets = loadCustomTargets();
+        const allTargets = {
+          ...localTargets,
+          ...(resJson.serverTargets || {}),
+        };
+
+        if (allTargets && freshData.subjects) {
           freshData.subjects = freshData.subjects.map((s) => ({
             ...s,
-            targetGrade: storedTargets[s.id] || s.targetGrade,
+            targetGrade: allTargets[s.id] || s.targetGrade,
           }));
         }
+
+        // Обновляем время последней синхронизации
+        const syncTimeStr = new Date().toLocaleTimeString('ru-RU', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        freshData.profile.lastSync = syncTimeStr;
+        lastSyncTimeRef.current = Date.now();
 
         setDiaryData(freshData);
         saveDiaryData(freshData);
         prevSubjectsRef.current = freshData.subjects || [];
+
+        // Обновляем cookie если изменилась
+        if (resJson.sessionCookie && resJson.sessionCookie !== currentSettings.sessionCookie) {
+          const updatedSettings = {
+            ...currentSettings,
+            sessionCookie: resJson.sessionCookie,
+          };
+          setSettings(updatedSettings);
+          saveSettings(updatedSettings);
+        }
+
+        if (isManual) {
+          showToast('Оценки и средний балл обновлены', 'success');
+        }
       } catch (err) {
-        console.error('Ошибка фоновой автопроверка отметок:', err);
+        console.error('Ошибка автопроверки отметок:', err);
       } finally {
         setIsBackgroundChecking(false);
       }
-    }, 300_000); // 5 минут = 300 000 мс
+    },
+    [showToast]
+  );
 
-    return () => clearInterval(intervalId);
-  }, [diaryData?.currentQuarter, settings, showToast]);
+  // Фоновый планировщик: строго каждые 10 минут + проверка при возвращении на вкладку
+  useEffect(() => {
+    // 10 минут = 600 000 мс
+    const TEN_MINUTES_MS = 600_000;
+
+    const intervalId = setInterval(() => {
+      runAutoSync(false);
+    }, TEN_MINUTES_MS);
+
+    // При возврате пользователя на вкладку/разблокировке экрана на телефоне
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const elapsed = Date.now() - lastSyncTimeRef.current;
+        if (elapsed >= TEN_MINUTES_MS) {
+          runAutoSync(false);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [runAutoSync]);
 
   // Переключение аккаунта
   const handleSwitchAccount = async (account: SavedAccount) => {
@@ -302,14 +452,43 @@ export default function HomePage() {
       }
 
       const receivedData: DiaryData = resJson.data;
-      const storedTargets = loadCustomTargets();
-      if (storedTargets && receivedData.subjects) {
-        receivedData.subjects = receivedData.subjects.map((s) => ({
-          ...s,
-          targetGrade: storedTargets[s.id] || s.targetGrade,
-        }));
+
+      // Загружаем и синхронизируем цели с сервера
+      let serverTargets = resJson.serverTargets || {};
+      if (Object.keys(serverTargets).length === 0 && account.login) {
+        try {
+          serverTargets = await fetchServerTargets(account.login);
+        } catch {}
       }
 
+      const storedTargets = loadCustomTargets();
+      const allTargets = { ...storedTargets, ...serverTargets };
+
+      if (receivedData.subjects) {
+        receivedData.subjects = receivedData.subjects.map((s) => {
+          const validGrades = (s.grades || []).filter(
+            (g) => typeof g.value === 'number' && g.value > 0
+          );
+          const calculatedAvg = validGrades.length > 0
+            ? Number((validGrades.reduce((sum, g) => sum + g.value, 0) / validGrades.length).toFixed(2))
+            : s.currentAverage;
+
+          return {
+            ...s,
+            currentAverage: calculatedAvg,
+            targetGrade: allTargets[s.id] || s.targetGrade,
+          };
+        });
+
+        const graded = receivedData.subjects.filter((s) => s.isGraded !== false && s.currentAverage > 0);
+        if (graded.length > 0) {
+          receivedData.overallGpa = Number(
+            (graded.reduce((sum, s) => sum + s.currentAverage, 0) / graded.length).toFixed(2)
+          );
+        }
+      }
+
+      lastSyncTimeRef.current = Date.now();
       setDiaryData(receivedData);
       saveDiaryData(receivedData);
       prevSubjectsRef.current = receivedData.subjects || [];
@@ -345,9 +524,10 @@ export default function HomePage() {
     showToast('Профиль удален из сохраненных');
   };
 
-  // Ручная установка цели по предмету
+  // Ручная установка цели по предмету (с синхронизацией на сервере)
   const handleSaveTarget = (subjectId: string, targetVal: number) => {
-    saveCustomTarget(subjectId, targetVal);
+    const activeLogin = diaryData?.profile?.login || settings?.login;
+    saveCustomTarget(subjectId, targetVal, activeLogin);
     if (!diaryData) return;
 
     const updatedSubjects = diaryData.subjects.map((s) => {
@@ -365,12 +545,13 @@ export default function HomePage() {
       setSelectedSubject({ ...selectedSubject, targetGrade: targetVal });
     }
 
-    showToast(`Цель ${targetVal} зафиксирована`);
+    showToast(`Цель ${targetVal} зафиксирована и сохранена на сервере`);
   };
 
-  // Сброс цели
+  // Сброс цели (с синхронизацией на сервере)
   const handleClearTarget = (subjectId: string) => {
-    removeCustomTarget(subjectId);
+    const activeLogin = diaryData?.profile?.login || settings?.login;
+    removeCustomTarget(subjectId, activeLogin);
     if (!diaryData) return;
 
     const updatedSubjects = diaryData.subjects.map((s) => {
@@ -399,13 +580,19 @@ export default function HomePage() {
     if (!diaryData || !settings) return;
     setIsSyncing(true);
     try {
+      const activeAccount = savedAccountsRef.current.find(
+        (a) => a.login?.toLowerCase() === settings.login?.toLowerCase()
+      );
+      const password = activeAccount?.password;
+
       const response = await fetch(`${API_BASE_URL}/api/eschools/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           login: settings.login,
+          password: password,
           subdomain: settings.subdomain,
-          sessionCookie: settings.sessionCookie,
+          sessionCookie: activeAccount?.sessionCookie || settings.sessionCookie,
           quarterNumber: quarterNum,
         }),
       });
@@ -499,6 +686,14 @@ export default function HomePage() {
               <Users className="w-3 h-3 text-zinc-400" />
               <span>{savedAccounts.length || 1}</span>
             </button>
+            <button
+              onClick={() => runAutoSync(true)}
+              disabled={isBackgroundChecking || isSyncing}
+              title="Обновить оценки прямо сейчас"
+              className="p-1.5 rounded bg-surface-subtle border border-surface-border text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
+            </button>
             <div className="px-2 py-1 rounded text-xs font-mono font-bold bg-surface-muted border border-surface-border text-zinc-100" title="Текущий средний балл">
               {diaryData.overallGpa.toFixed(2)}
             </div>
@@ -542,6 +737,14 @@ export default function HomePage() {
               <span className="text-xs text-zinc-400 font-mono">
                 Обновлено: <span className="text-zinc-200">{diaryData.profile.lastSync || 'только что'}</span>
               </span>
+              <button
+                onClick={() => runAutoSync(true)}
+                disabled={isBackgroundChecking || isSyncing}
+                title="Обновить оценки и средний балл прямо сейчас"
+                className="p-1.5 rounded hover:bg-surface-subtle text-zinc-400 hover:text-zinc-200 transition-colors border border-surface-border disabled:opacity-40"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
+              </button>
             </div>
           </div>
 
