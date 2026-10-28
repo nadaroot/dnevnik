@@ -32,6 +32,16 @@ export const TargetModal: React.FC<TargetModalProps> = ({
     }
   }, [subject]);
 
+  // Блокируем скролл body — предотвращает rubber-band отскок на iOS Safari
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('modal-open');
+    }
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, [isOpen]);
+
   if (!isOpen || !subject) return null;
 
   const currentGpa = subject.currentAverage || 0;
@@ -88,7 +98,10 @@ export const TargetModal: React.FC<TargetModalProps> = ({
         </div>
 
         {/* Тело модалки */}
-        <div className="p-5 space-y-4">
+        <div
+          className="modal-scroll p-5 space-y-4 overflow-y-auto max-h-[70vh]"
+          style={{ overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+        >
           {/* Текущий балл предмета */}
           <div className="flex items-center justify-between p-3 rounded-lg bg-surface border border-surface-border">
             <span className="text-xs text-zinc-400">Текущий средний балл:</span>

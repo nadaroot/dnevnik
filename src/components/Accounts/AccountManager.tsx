@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   Plus,
@@ -39,6 +39,16 @@ export const AccountManager: React.FC<AccountManagerProps> = ({
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Блокируем скролл body — предотвращает rubber-band отскок на iOS Safari
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('modal-open');
+    }
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

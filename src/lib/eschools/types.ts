@@ -20,6 +20,15 @@ export interface SubjectItem {
   critical?: boolean;
   trend?: 'up' | 'down' | 'stable';
   quarterGrade?: number;
+  quarterGrades?: {
+    q1?: number | string;
+    q2?: number | string;
+    q3?: number | string;
+    q4?: number | string;
+    exam?: number | string;
+    year?: number | string;
+    final?: number | string;
+  };
   periodType?: SubjectPeriodType; // 'quarter' (четверть) | 'semester' (полугодие - раз в неделю) | 'none' (безоценочный)
   isGraded?: boolean;             // false для классных/инф часов и зачетных предметов
   gradingType?: 'grades' | 'pass_fail' | 'none'; // 'grades' (1-10), 'pass_fail' (зачет/незачет - Искусство), 'none' (классный/инф час)
@@ -35,6 +44,8 @@ export interface LessonItem {
   room: string;
   teacher?: string;
   homework?: string;
+  grade?: number;
+  gradeTopic?: string;
 }
 
 export interface DaySchedule {
@@ -42,6 +53,15 @@ export interface DaySchedule {
   dayName: string;   // "Понедельник", etc.
   date?: string;
   lessons: LessonItem[];
+}
+
+export interface WeekScheduleData {
+  weekIndex: number;
+  weekId?: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string;   // YYYY-MM-DD
+  isCurrent: boolean;
+  days: DaySchedule[];
 }
 
 export interface QuarterInfo {
@@ -68,6 +88,7 @@ export interface DiaryData {
   currentQuarter: number;
   subjects: SubjectItem[];
   schedule: DaySchedule[];
+  weeksSchedule?: WeekScheduleData[];
   overallGpa: number;
   historyGpa: { date: string; gpa: number }[];
 }

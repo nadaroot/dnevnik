@@ -17,6 +17,7 @@ import { AdminPanel } from '@/components/Admin/AdminPanel';
 import { AccountManager } from '@/components/Accounts/AccountManager';
 import { TargetModal } from '@/components/Subjects/TargetModal';
 import { GoalsTargetTab } from '@/components/Goals/GoalsTargetTab';
+import { GradeCalculatorModal } from '@/components/Subjects/GradeCalculatorModal';
 import { IosInstallPrompt } from '@/components/PWA/IosInstallPrompt';
 import { LoginForm } from '@/components/Auth/LoginForm';
 import { ConstellationBackground } from '@/components/Auth/ConstellationBackground';
@@ -47,6 +48,7 @@ import {
   AlertCircle,
   Users,
   RefreshCw,
+  Calculator,
 } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -64,12 +66,48 @@ export default function HomePage() {
   const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
   const [isAccountsOpen, setIsAccountsOpen] = useState(false);
   const [targetModalSubject, setTargetModalSubject] = useState<SubjectItem | null>(null);
+  const [calculatorSubject, setCalculatorSubject] = useState<SubjectItem | null>(null);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState<boolean>(false);
+
+  const handleOpenCalculator = (subject?: SubjectItem) => {
+    if (subject) {
+      setCalculatorSubject(subject);
+    }
+    setIsCalculatorOpen(true);
+  };
 
   // Расчет предполагаемого среднего балла по установленным целям
   const projectedStats = useMemo(() => {
     if (!diaryData) return null;
     return calculateProjectedGpa(diaryData.subjects, diaryData.overallGpa);
   }, [diaryData]);
+
+  // Автоматическая регистрация пользователя в реестре платформы
+  const reportUserToServer = (data: DiaryData, userLogin?: string) => {
+    try {
+      const l = userLogin || data.profile?.login || '';
+      if (!l && !data.profile?.studentName) return;
+      fetch('/api/eschools/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          login: l || 'user',
+          studentName: data.profile.studentName,
+          className: data.profile.className,
+          schoolName: data.profile.schoolName,
+          overallGpa: data.overallGpa,
+          subjectsCount: data.subjects?.length || 0,
+          gradesCount: (data.subjects || []).reduce((acc, s) => acc + (s.grades ? s.grades.length : 0), 0),
+          subjectsSummary: (data.subjects || []).map((s) => ({
+            name: s.name,
+            average: s.currentAverage || 0,
+            gradesCount: s.grades ? s.grades.length : 0,
+            quarterGrade: s.quarterGrade,
+          })),
+        }),
+      }).catch(() => {});
+    } catch {}
+  };
 
   // Ref для отслеживания предыдущих отметок при автопроверке
   const prevSubjectsRef = useRef<SubjectItem[]>([]);
@@ -192,6 +230,7 @@ export default function HomePage() {
       };
       saveAccount(accountToSave);
       setSavedAccounts(loadSavedAccounts());
+      reportUserToServer(receivedData, credentials.login);
 
       showToast(`Добро пожаловать, ${receivedData.profile.studentName}!`);
     } catch (err: any) {
@@ -213,6 +252,8 @@ export default function HomePage() {
       setSavedAccounts(loadedAccounts);
 
       if (saved) {
+        reportUserToServer(saved, currentSettings.login);
+
         // Применяем сохраненные ручные цели
         if (storedTargets && saved.subjects) {
           saved.subjects = saved.subjects.map((s) => ({
@@ -804,7 +845,9 @@ export default function HomePage() {
   const isAdmin =
     diaryData?.profile?.isAdmin ||
     diaryData?.profile?.login?.toLowerCase() === 'nadaroot' ||
-    settings?.login?.toLowerCase() === 'nadaroot';
+    settings?.login?.toLowerCase() === 'nadaroot' ||
+    savedAccounts.some((a) => a.isAdmin || a.login?.toLowerCase() === 'nadaroot') ||
+    diaryData?.profile?.studentName?.toLowerCase().includes('шипалов');
 
   // ЭКРАН АВТОРИЗАЦИИ (Созвездия и мерцающие звезды на OLED черном фоне)
   if (!diaryData) {
@@ -837,50 +880,80 @@ export default function HomePage() {
 
       {/* Основная рабочая область */}
       <main className="relative z-10 flex-1 md:ml-64 flex flex-col min-h-screen pb-20 md:pb-8">
-        {/* Мобильная верхняя панель (Header) */}
-        <header className="md:hidden flex items-center justify-between p-4 bg-surface border-b border-surface-border sticky top-0 z-30 select-none">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded bg-surface-subtle border border-surface-border flex items-center justify-center text-zinc-200">
-              <GraduationCap className="w-4 h-4" />
+        {/* Мобильная верхняя панель (Header) - адаптивная двухстрочная с учетом безопасной зоны Notch / Dynamic Island */}
+        <header className="md:hidden px-3.5 pt-safe pb-3 bg-surface border-b border-surface-border sticky top-0 z-30 select-none space-y-2.5">
+          {/* Строка 1: Полное имя ученика ("Шипалов Дмитрий") + Класс и школа, а справа крупный средний балл */}
+          <div className="flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="w-8 h-8 rounded-lg bg-surface-subtle border border-surface-border flex items-center justify-center text-zinc-200 shrink-0">
+                <GraduationCap className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs sm:text-sm font-bold text-zinc-100 truncate">
+                  {diaryData.profile.studentName || 'Учащийся'}
+                </div>
+                <div className="text-[10px] text-zinc-400 font-mono truncate">
+                  {diaryData.profile.className || 'Класс не указан'}{diaryData.profile.schoolName ? ` • ${diaryData.profile.schoolName}` : ''}
+                </div>
+              </div>
             </div>
-            <div>
-              <div className="text-xs font-semibold text-zinc-100 truncate max-w-[170px]">
-                {diaryData.profile.studentName}
+
+            {/* Бейджи баллов: четкие, контрастные и всегда помещаются на экране */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <div
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-subtle border border-surface-border"
+                title="Текущий средний балл"
+              >
+                <span className="text-[10px] text-zinc-400 font-mono">Балл:</span>
+                <span className="text-xs font-mono font-bold text-zinc-100">
+                  {diaryData.overallGpa.toFixed(2)}
+                </span>
               </div>
-              <div className="text-[10px] text-zinc-400 font-mono">
-                {diaryData.profile.className}
-              </div>
+
+              {projectedStats && projectedStats.targetsSetCount > 0 && (
+                <div
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-700/80 text-[11px] font-mono text-zinc-200"
+                  title={`Предполагаемый средний балл по целям (${projectedStats.difference >= 0 ? '+' : ''}${projectedStats.difference.toFixed(2)})`}
+                >
+                  <span className="text-zinc-400">🎯</span>
+                  <span className="font-bold">{projectedStats.projectedGpa.toFixed(2)}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsAccountsOpen(true)}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono bg-surface-subtle border border-surface-border text-zinc-300"
-            >
-              <Users className="w-3 h-3 text-zinc-400" />
-              <span>{savedAccounts.length || 1}</span>
-            </button>
-            <button
-              onClick={() => runAutoSync(true)}
-              disabled={isBackgroundChecking || isSyncing}
-              title="Обновить оценки прямо сейчас"
-              className="p-1.5 rounded bg-surface-subtle border border-surface-border text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
-            </button>
-            <div className="px-2 py-1 rounded text-xs font-mono font-bold bg-surface-muted border border-surface-border text-zinc-100" title="Текущий средний балл">
-              {diaryData.overallGpa.toFixed(2)}
-            </div>
-            {projectedStats && projectedStats.targetsSetCount > 0 && (
-              <div
-                className="hidden min-[380px]:flex items-center gap-1 px-1.5 py-1 rounded text-[11px] font-mono text-zinc-300 bg-surface-subtle border border-surface-border"
-                title={`Предполагаемый средний балл по целям (${projectedStats.difference >= 0 ? '+' : ''}${projectedStats.difference})`}
+          {/* Строка 2: Панель быстрых действий (Калькулятор, Обновить, Аккаунты) */}
+          <div className="flex items-center justify-between pt-1 border-t border-surface-border/50 text-xs">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => handleOpenCalculator()}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-surface-subtle border border-surface-border text-zinc-200 hover:text-white active:scale-95 transition-all font-medium text-[11px]"
               >
-                <span className="text-zinc-500">🎯</span>
-                <span className="font-bold">{projectedStats.projectedGpa.toFixed(2)}</span>
-              </div>
-            )}
+                <Calculator className="w-3.5 h-3.5 text-zinc-300" />
+                <span>Калькулятор</span>
+              </button>
+
+              <button
+                onClick={() => runAutoSync(true)}
+                disabled={isBackgroundChecking || isSyncing}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 disabled:opacity-40 active:scale-95 transition-all text-[11px]"
+                title="Обновить оценки прямо сейчас"
+              >
+                <RefreshCw className={`w-3 h-3 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isBackgroundChecking || isSyncing ? 'Обновление...' : 'Обновить'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsAccountsOpen(true)}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 transition-colors"
+                title="Управление сохраненными аккаунтами"
+              >
+                <Users className="w-3 h-3 text-zinc-400" />
+                <span>{savedAccounts.length || 1} акк.</span>
+              </button>
+            </div>
           </div>
         </header>
 
@@ -912,6 +985,14 @@ export default function HomePage() {
               <span className="text-xs text-zinc-400 font-mono">
                 Обновлено: <span className="text-zinc-200">{diaryData.profile.lastSync || 'только что'}</span>
               </span>
+              <button
+                onClick={() => handleOpenCalculator()}
+                title="Калькулятор отметок"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded hover:bg-surface-subtle text-zinc-300 hover:text-white transition-colors border border-surface-border text-xs font-mono"
+              >
+                <Calculator className="w-3.5 h-3.5" />
+                <span>Калькулятор</span>
+              </button>
               <button
                 onClick={() => runAutoSync(true)}
                 disabled={isBackgroundChecking || isSyncing}
@@ -973,6 +1054,7 @@ export default function HomePage() {
               overallGpa={diaryData.overallGpa}
               onOpenSubject={handleOpenSubjectFromDashboard}
               onOpenTargetModal={(subject) => setTargetModalSubject(subject)}
+              onOpenCalculator={handleOpenCalculator}
             />
           )}
 
@@ -996,9 +1078,18 @@ export default function HomePage() {
             />
           )}
 
-          {/* Вкладка 4: Расписание */}
+          {/* Вкладка 4: Расписание и страницы дневника */}
           {activeTab === 'schedule' && (
-            <WeekSchedule schedule={diaryData.schedule} />
+            <WeekSchedule
+              schedule={diaryData.schedule}
+              weeksSchedule={diaryData.weeksSchedule}
+              subjects={diaryData.subjects}
+              quarters={diaryData.quarters}
+              currentQuarter={diaryData.currentQuarter}
+              onSelectQuarter={handleSelectQuarter}
+              onOpenSubject={handleOpenSubjectFromDashboard}
+              onOpenCalculator={handleOpenCalculator}
+            />
           )}
 
           {/* Вкладка 5: Админ-панель */}
@@ -1042,6 +1133,18 @@ export default function HomePage() {
         onClose={() => setTargetModalSubject(null)}
         onSaveTarget={handleSaveTarget}
         onClearTarget={handleClearTarget}
+      />
+
+      {/* Удобный мобильный и десктопный калькулятор отметок и симулятор */}
+      <GradeCalculatorModal
+        isOpen={isCalculatorOpen}
+        onClose={() => {
+          setIsCalculatorOpen(false);
+          setCalculatorSubject(null);
+        }}
+        subjects={diaryData.subjects}
+        initialSubject={calculatorSubject}
+        onSaveTarget={handleSaveTarget}
       />
 
       {/* Подсказка по установке PWA на iPhone */}

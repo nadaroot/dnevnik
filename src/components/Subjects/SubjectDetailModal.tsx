@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Calendar, BookOpen, Activity } from 'lucide-react';
 import { SubjectItem } from '@/lib/eschools/types';
 import { getGradeBadgeClasses, formatDateRu } from '@/lib/utils';
@@ -17,6 +17,16 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
   onClose,
   onUpdateTarget,
 }) => {
+  // Блокируем скролл body — предотвращает rubber-band отскок на iOS Safari
+  useEffect(() => {
+    if (subject) {
+      document.body.classList.add('modal-open');
+    }
+    return () => {
+      document.body.classList.remove('modal-open');
+    };
+  }, [subject]);
+
   if (!subject) return null;
 
   const badge = getGradeBadgeClasses(Math.round(subject.currentAverage));
@@ -79,7 +89,10 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
         </div>
 
         {/* Прокручиваемый контент */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div
+          className="modal-scroll flex-1 overflow-y-auto p-4 space-y-4"
+          style={{ overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+        >
           {/* График отметок по предмету */}
           {grades.length > 0 && (
             <div className="p-3 rounded-lg bg-surface-subtle border border-surface-border">

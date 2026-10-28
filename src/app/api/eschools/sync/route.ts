@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ESchoolsClient } from '@/lib/eschools/client';
+import { saveRegisteredUser } from '@/lib/eschools/userRegistry';
 import fs from 'fs';
 import path from 'path';
+
+export const dynamic = 'force-dynamic';
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -50,6 +53,31 @@ export async function POST(req: NextRequest) {
           success: false,
           error: 'Некорректный ответ от бэкенд-сервера',
         }));
+
+        if (proxyData && proxyData.success && proxyData.data) {
+          try {
+            const p = proxyData.data.profile || {};
+            const subjects = proxyData.data.subjects || [];
+            saveRegisteredUser({
+              login: p.login || login || 'user',
+              studentName: p.studentName || 'Учащийся',
+              className: p.className || '',
+              schoolName: p.schoolName || '',
+              overallGpa: proxyData.data.overallGpa || 0,
+              subdomain,
+              subjectsCount: subjects.length,
+              gradesCount: subjects.reduce((acc: number, s: any) => acc + (s.grades ? s.grades.length : 0), 0),
+              subjectsSummary: subjects.map((s: any) => ({
+                name: s.name,
+                average: s.currentAverage || 0,
+                gradesCount: s.grades ? s.grades.length : 0,
+                quarterGrade: s.quarterGrade,
+              })),
+            });
+          } catch (regErr) {
+            console.error('Ошибка сохранения пользователя в реестр:', regErr);
+          }
+        }
 
         return NextResponse.json(proxyData, {
           status: resp.status,
@@ -110,6 +138,31 @@ export async function POST(req: NextRequest) {
         }
       } catch (err) {
         console.error('Ошибка подгрузки целей из файла:', err);
+      }
+    }
+
+    if (diaryData) {
+      try {
+        const p = diaryData.profile || {};
+        const subjects = diaryData.subjects || [];
+        saveRegisteredUser({
+          login: p.login || login || 'user',
+          studentName: p.studentName || 'Учащийся',
+          className: p.className || '',
+          schoolName: p.schoolName || '',
+          overallGpa: diaryData.overallGpa || 0,
+          subdomain,
+          subjectsCount: subjects.length,
+          gradesCount: subjects.reduce((acc, s) => acc + (s.grades ? s.grades.length : 0), 0),
+          subjectsSummary: subjects.map((s) => ({
+            name: s.name,
+            average: s.currentAverage || 0,
+            gradesCount: s.grades ? s.grades.length : 0,
+            quarterGrade: s.quarterGrade,
+          })),
+        });
+      } catch (regErr) {
+        console.error('Ошибка сохранения пользователя в реестр:', regErr);
       }
     }
 

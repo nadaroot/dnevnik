@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { DiaryData, SubjectItem, GradeEntry, DaySchedule, LessonItem, QuarterInfo, SubjectPeriodType } from './types';
+import { DiaryData, SubjectItem, GradeEntry, DaySchedule, LessonItem, QuarterInfo, SubjectPeriodType, WeekScheduleData } from './types';
 import { calculateAverage } from './calculator';
 
 export interface ESchoolsCredentials {
@@ -381,9 +381,11 @@ export class ESchoolsClient {
     });
 
     let currentWeekSchedule: DaySchedule[] = [];
+    const allWeeksSchedule: WeekScheduleData[] = [];
     const DAY_NAMES = ['', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 
-    for (const w of pastWeeks) {
+    for (let wIdx = 0; wIdx < pastWeeks.length; wIdx++) {
+      const w = pastWeeks[wIdx];
       const lessonsUrl = `https://diary.e-schools.by/api/v1/education/diary/schools/${schoolId}/classes/${classId}/students/${studentId}/lessons?week_activity_uuid=${w.uuid}`;
       const lRes = await fetch(lessonsUrl, { headers });
       if (!lRes.ok) continue;
@@ -391,21 +393,45 @@ export class ESchoolsClient {
       const days: any[] = await lRes.json().catch(() => []);
       const isThisWeek = w.uuid === currentWeek?.uuid;
 
-      if (isThisWeek) {
-        currentWeekSchedule = days.map(d => ({
-          dayOfWeek: d.day_of_week,
-          dayName: DAY_NAMES[d.day_of_week] || `День ${d.day_of_week}`,
-          date: new Date(d.date).toISOString().split('T')[0],
-          lessons: (d.slots || []).map((slot: any) => ({
+      const weekDays: DaySchedule[] = days.map((d: any) => ({
+        dayOfWeek: d.day_of_week,
+        dayName: DAY_NAMES[d.day_of_week] || `День ${d.day_of_week}`,
+        date: new Date(d.date).toISOString().split('T')[0],
+        lessons: (d.slots || []).map((slot: any) => {
+          let gradeVal: number | undefined;
+          let gradeTopic: string | undefined;
+          if (slot.lesson_mark && slot.lesson_mark.mark) {
+            const numVal = parseInt(slot.lesson_mark.mark, 10);
+            if (!isNaN(numVal) && numVal >= 1 && numVal <= 10) {
+              gradeVal = numVal;
+              gradeTopic = slot.topic || slot.lesson_mark.comment || undefined;
+            }
+          }
+          return {
             id: slot.lesson_uuid,
             lessonNumber: slot.number,
             startTime: (slot.start_time || '').slice(0, 5),
             endTime: '',
             subject: slot.subject_title || '',
             room: '',
-            homework: slot.homework || undefined
-          }))
-        }));
+            homework: slot.homework || undefined,
+            grade: gradeVal,
+            gradeTopic: gradeTopic,
+          };
+        }),
+      }));
+
+      allWeeksSchedule.push({
+        weekIndex: wIdx + 1,
+        weekId: w.uuid,
+        startDate: new Date(w.start_ts).toISOString().split('T')[0],
+        endDate: new Date(w.end_ts).toISOString().split('T')[0],
+        isCurrent: isThisWeek,
+        days: weekDays,
+      });
+
+      if (isThisWeek) {
+        currentWeekSchedule = weekDays;
       }
 
       for (const d of days) {
@@ -503,11 +529,17 @@ export class ESchoolsClient {
         isSemesterSubject ? (gpa > 0 && gpa < 5.0) : (gpa > 0 && gpa < 6.0)
       );
 
+      const roundedQuarter = isGraded && sGrades.length > 0 ? Math.round(gpa) : undefined;
+
       return {
         id: `subj_${idx}_${subjName}`,
         name: subjName,
         grades: isExplicitNonGraded ? [] : sGrades,
         currentAverage: isExplicitNonGraded ? 0 : gpa,
+        quarterGrade: roundedQuarter,
+        quarterGrades: {
+          q1: roundedQuarter,
+        },
         critical,
         trend: 'stable' as const,
         periodType,
@@ -574,6 +606,7 @@ export class ESchoolsClient {
       currentQuarter: 1,
       subjects,
       schedule: currentWeekSchedule,
+      weeksSchedule: allWeeksSchedule,
       overallGpa,
       historyGpa
     };

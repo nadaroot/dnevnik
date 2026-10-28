@@ -22,6 +22,7 @@ interface AveragesTableProps {
   overallGpa: number;
   onOpenSubject: (subject: SubjectItem) => void;
   onOpenTargetModal?: (subject: SubjectItem) => void;
+  onOpenCalculator?: (subject: SubjectItem) => void;
 }
 
 type FilterType = 'all' | 'with-grades' | 'quarter' | 'semester' | 'none';
@@ -33,11 +34,13 @@ export const AveragesTable: React.FC<AveragesTableProps> = ({
   overallGpa,
   onOpenSubject,
   onOpenTargetModal,
+  onOpenCalculator,
 }) => {
   const [filter, setFilter] = useState<FilterType>('all');
   const [sortField, setSortField] = useState<SortField>('gpa');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [searchQuery, setSearchQuery] = useState('');
+  const [mobileViewMode, setMobileViewMode] = useState<'compact' | 'detailed'>('compact');
 
   // Подсчет сводной статистики
   const stats = useMemo(() => {
@@ -423,124 +426,271 @@ export const AveragesTable: React.FC<AveragesTableProps> = ({
         </table>
       </div>
 
-      {/* Мобильный список карточек (Mobile-First) */}
-      <div className="md:hidden space-y-2.5">
+      {/* Мобильный вид (Mobile-First): переключатель компактно/подробно и список */}
+      <div className="md:hidden space-y-3">
+        {/* Панель переключения режима и фильтров на мобильном */}
+        <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-surface border border-surface-border select-none">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none text-[11px] font-mono">
+            {(['all', 'with-grades', 'quarter', 'semester'] as FilterType[]).map((f) => {
+              const labels: Record<string, string> = {
+                all: 'Все',
+                'with-grades': 'С оценками',
+                quarter: 'Четверть',
+                semester: '1 ч/нед',
+              };
+              const isFActive = filter === f;
+              return (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`px-2.5 py-1 rounded text-xs transition-colors shrink-0 ${
+                    isFActive
+                      ? 'bg-zinc-100 text-zinc-950 font-bold'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {labels[f]}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Переключатель: Компактно / Подробно */}
+          <div className="flex items-center gap-1 shrink-0 bg-surface-subtle p-0.5 rounded-lg border border-surface-border text-[10px] font-mono">
+            <button
+              onClick={() => setMobileViewMode('compact')}
+              className={`px-2 py-0.5 rounded transition-all ${
+                mobileViewMode === 'compact'
+                  ? 'bg-zinc-100 text-zinc-950 font-bold'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Компактно
+            </button>
+            <button
+              onClick={() => setMobileViewMode('detailed')}
+              className={`px-2 py-0.5 rounded transition-all ${
+                mobileViewMode === 'detailed'
+                  ? 'bg-zinc-100 text-zinc-950 font-bold'
+                  : 'text-zinc-400 hover:text-zinc-200'
+              }`}
+            >
+              Подробно
+            </button>
+          </div>
+        </div>
+
         {filteredSubjects.length === 0 ? (
           <div className="p-6 text-center text-zinc-500 font-mono text-xs rounded-lg bg-surface border border-surface-border">
             По выбранным критериям предметов не найдено
           </div>
-        ) : (
-          filteredSubjects.map((s) => {
-            const isPassFail = s.gradingType === 'pass_fail' || s.name.toLowerCase().includes('искусство');
-            const isClassHour = s.gradingType === 'none' || s.name.toLowerCase().includes('классный час') || s.name.toLowerCase().includes('информационный час');
-            const isNonGraded = isPassFail || isClassHour || s.periodType === 'none' || s.isGraded === false;
-            const isSemester = s.periodType === 'semester';
-            const roundedGpa = Math.round(s.currentAverage);
-            const badge = getGradeBadgeClasses(roundedGpa);
+        ) : mobileViewMode === 'compact' ? (
+          /* КОМПАКТНЫЙ РЕЖИМ (устраняет бесконечный скролл) */
+          <div className="space-y-1.5">
+            {filteredSubjects.map((s) => {
+              const isPassFail = s.gradingType === 'pass_fail' || s.name.toLowerCase().includes('искусство');
+              const isClassHour = s.gradingType === 'none' || s.name.toLowerCase().includes('классный час') || s.name.toLowerCase().includes('информационный час');
+              const isNonGraded = isPassFail || isClassHour || s.periodType === 'none' || s.isGraded === false;
+              const roundedGpa = Math.round(s.currentAverage);
+              const badge = getGradeBadgeClasses(roundedGpa);
 
-            return (
-              <div
-                key={s.id}
-                onClick={() => onOpenSubject(s)}
-                className="p-3.5 rounded-lg bg-surface border border-surface-border hover:border-zinc-700 active:bg-surface-subtle transition-colors cursor-pointer space-y-2.5"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-zinc-100 truncate">
-                      {s.name}
-                    </div>
-                    {s.teacher && (
-                      <div className="text-[11px] text-zinc-500 mt-0.5 truncate">
-                        {s.teacher}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="shrink-0 flex items-center gap-1.5">
-                    {isPassFail ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
-                        Зачет/Незачет
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => onOpenSubject(s)}
+                  className="px-3 py-2.5 rounded-lg bg-surface border border-surface-border hover:border-zinc-700 active:bg-surface-subtle transition-colors cursor-pointer flex items-center justify-between gap-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-zinc-100 truncate">
+                        {s.name}
                       </span>
-                    ) : isClassHour ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-900 text-zinc-400 border border-zinc-800">
-                        Без оценок
-                      </span>
-                    ) : isSemester ? (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800/80 text-zinc-300 border border-zinc-700">
-                        Полугодие
-                      </span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800/60 text-zinc-400 border border-zinc-700">
-                        Четверть
-                      </span>
-                    )}
-
-                    {!isNonGraded && s.grades && s.grades.length > 0 && (
-                      <span
-                        className={`px-2 py-0.5 rounded font-mono font-bold text-xs border ${badge}`}
-                      >
-                        {s.currentAverage.toFixed(2)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Оценки на мобильном */}
-                {!isNonGraded && (
-                  <div className="pt-2 border-t border-surface-border/50 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none flex-1">
-                      {s.grades && s.grades.length > 0 ? (
-                        s.grades.map((g, idx) => (
-                          <span
-                            key={g.id || idx}
-                            className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono font-bold border shrink-0 ${getGradeBadgeClasses(
-                              g.value
-                            )}`}
-                          >
-                            {g.value}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-[10px] text-zinc-500 font-mono">
-                          Нет отметок
+                      {s.periodType === 'semester' && (
+                        <span className="px-1 py-0.2 rounded text-[8px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">
+                          1 ч/н
                         </span>
                       )}
                     </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {s.targetGrade ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenTargetModal?.(s);
-                          }}
-                          className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 text-zinc-200 border border-zinc-600"
-                        >
-                          {s.targetGrade}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenTargetModal?.(s);
-                          }}
-                          className="px-1.5 py-0.5 rounded text-[9px] font-mono text-zinc-400 border border-dashed border-zinc-700"
-                        >
-                          + Цель
-                        </button>
+                    <div className="flex items-center gap-2 text-[10px] text-zinc-400 font-mono mt-0.5">
+                      <span>{isNonGraded ? (isPassFail ? 'Зачет' : 'Без оценок') : `${s.grades?.length || 0} отм.`}</span>
+                      {s.targetGrade && (
+                        <span className="text-zinc-300">Цель: {s.targetGrade}</span>
                       )}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-1.5">
+                    {/* Кнопка калькулятора */}
+                    {!isNonGraded && onOpenCalculator && (
                       <button
-                        title="Калькулятор стратегии"
-                        className="p-1 rounded bg-surface-subtle text-zinc-400"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenCalculator(s);
+                        }}
+                        title="Калькулятор отметок"
+                        className="p-1 rounded-md bg-surface-subtle text-zinc-400 hover:text-zinc-200 border border-surface-border active:scale-95 transition-colors"
                       >
                         <Calculator className="w-3.5 h-3.5" />
                       </button>
+                    )}
+
+                    {/* Кнопка цели */}
+                    {!isNonGraded && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenTargetModal?.(s);
+                        }}
+                        className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-300 bg-surface-subtle border border-surface-border hover:border-zinc-600"
+                      >
+                        {s.targetGrade ? `🎯 ${s.targetGrade}` : '+ Цель'}
+                      </button>
+                    )}
+
+                    {/* Бейдж среднего балла */}
+                    {!isNonGraded && s.grades && s.grades.length > 0 ? (
+                      <span
+                        className={`w-11 h-6 rounded flex items-center justify-center font-mono font-bold text-xs border ${badge}`}
+                      >
+                        {s.currentAverage.toFixed(1)}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-500 font-mono text-xs w-7 text-center">—</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          /* РАЗВЕРНУТЫЙ РЕЖИМ (с адаптивным переносом оценок, без горизонтальной полоски) */
+          <div className="space-y-2.5">
+            {filteredSubjects.map((s) => {
+              const isPassFail = s.gradingType === 'pass_fail' || s.name.toLowerCase().includes('искусство');
+              const isClassHour = s.gradingType === 'none' || s.name.toLowerCase().includes('классный час') || s.name.toLowerCase().includes('информационный час');
+              const isNonGraded = isPassFail || isClassHour || s.periodType === 'none' || s.isGraded === false;
+              const isSemester = s.periodType === 'semester';
+              const roundedGpa = Math.round(s.currentAverage);
+              const badge = getGradeBadgeClasses(roundedGpa);
+
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => onOpenSubject(s)}
+                  className="p-3.5 rounded-lg bg-surface border border-surface-border hover:border-zinc-700 active:bg-surface-subtle transition-colors cursor-pointer space-y-2.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-zinc-100 truncate">
+                        {s.name}
+                      </div>
+                      {s.teacher && (
+                        <div className="text-[11px] text-zinc-500 mt-0.5 truncate">
+                          {s.teacher}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {isPassFail ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+                          Зачет/Незачет
+                        </span>
+                      ) : isClassHour ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-900 text-zinc-400 border border-zinc-800">
+                          Без оценок
+                        </span>
+                      ) : isSemester ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800/80 text-zinc-300 border border-zinc-700">
+                          Полугодие
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-800/60 text-zinc-400 border border-zinc-700">
+                          Четверть
+                        </span>
+                      )}
+
+                      {!isNonGraded && s.grades && s.grades.length > 0 && (
+                        <span
+                          className={`px-2 py-0.5 rounded font-mono font-bold text-xs border ${badge}`}
+                        >
+                          {s.currentAverage.toFixed(2)}
+                        </span>
+                      )}
                     </div>
                   </div>
-                )}
-              </div>
-            );
-          })
+
+                  {/* Оценки с нормальным переносом flex-wrap (НЕ полоска!) */}
+                  {!isNonGraded && (
+                    <div className="pt-2 border-t border-surface-border/50 flex flex-col gap-2">
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {s.grades && s.grades.length > 0 ? (
+                          s.grades.map((g, idx) => (
+                            <span
+                              key={g.id || idx}
+                              className={`w-6 h-6 rounded flex items-center justify-center text-xs font-mono font-bold border shrink-0 ${getGradeBadgeClasses(
+                                g.value
+                              )}`}
+                            >
+                              {g.value}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[11px] text-zinc-500 font-mono">
+                            Нет отметок
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-surface-border/30">
+                        <span className="text-[11px] font-mono text-zinc-400">
+                          Всего: {s.grades?.length || 0} отм.
+                        </span>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {s.targetGrade ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenTargetModal?.(s);
+                              }}
+                              className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-200 border border-zinc-600"
+                            >
+                              Цель: {s.targetGrade}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenTargetModal?.(s);
+                              }}
+                              className="px-2 py-0.5 rounded text-[10px] font-mono text-zinc-400 border border-dashed border-zinc-700"
+                            >
+                              + Цель
+                            </button>
+                          )}
+
+                          {onOpenCalculator && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onOpenCalculator(s);
+                              }}
+                              title="Калькулятор отметок"
+                              className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface-subtle text-zinc-300 hover:text-white border border-surface-border text-[10px] font-mono active:scale-95 transition-all"
+                            >
+                              <Calculator className="w-3.5 h-3.5" />
+                              <span>Калькулятор</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

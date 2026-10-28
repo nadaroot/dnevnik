@@ -39,11 +39,42 @@ body {
   background: #3f3f46;
 }
 
-/* Учет безопасных зон для мобильных устройств (Notch / Home indicator) */
+/* Учет безопасных зон для мобильных устройств (Notch / Dynamic Island / Home indicator) */
 .pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 1rem);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
 }
 
 .pt-safe {
-  padding-top: env(safe-area-inset-top, 0.5rem);
+  padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
+}
+
+/* Блокировка скролла body когда открыта модалка — БЕЗ position:fixed, чтобы не сбивать координаты на iOS Safari */
+body.modal-open {
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* Наша фирменная кастомная полоса прокрутки («крутилка / ползунок») */
+.modal-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #52525b transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-scroll::-webkit-scrollbar {
+  width: 5px;
+  display: block;
+}
+
+.modal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-scroll::-webkit-scrollbar-thumb {
+  background: #52525b;
+  border-radius: 9999px;
+}
+
+.modal-scroll::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
 }
