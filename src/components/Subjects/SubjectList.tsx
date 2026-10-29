@@ -114,13 +114,6 @@ export const SubjectList: React.FC<SubjectListProps> = ({
           Предметы по запросу «{searchQuery}» не найдены
         </div>
       )}
-
-      {/* Модальное окно деталей */}
-      <SubjectDetailModal
-        subject={selectedSubject}
-        onClose={() => onSelectSubject(null)}
-        onUpdateTarget={onUpdateTarget}
-      />
     </div>
   );
 };

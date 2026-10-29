@@ -17,7 +17,6 @@ body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
-  user-select: none;
 }
 
 /* Стилизация скроллбара под строгий темный минимализм */
@@ -41,24 +40,26 @@ body {
 
 /* Учет безопасных зон для мобильных устройств (Notch / Dynamic Island / Home indicator) */
 .pb-safe {
-  padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.75rem);
 }
 
 .pt-safe {
   padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
 }
 
-/* Блокировка скролла body когда открыта модалка — БЕЗ position:fixed, чтобы не сбивать координаты на iOS Safari */
+/* Блокировка прокрутки фона при открытии модального окна (БЕЗ touch-action:none и БЕЗ position:fixed, чтобы не ломать скролл внутри модалок на телефоне) */
 body.modal-open {
   overflow: hidden;
-  touch-action: none;
+  overscroll-behavior: none;
 }
 
-/* Наша фирменная кастомная полоса прокрутки («крутилка / ползунок») */
+/* Кастомная полоса прокрутки для модальных окон */
 .modal-scroll {
   scrollbar-width: thin;
   scrollbar-color: #52525b transparent;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .modal-scroll::-webkit-scrollbar {
@@ -77,4 +78,14 @@ body.modal-open {
 
 .modal-scroll::-webkit-scrollbar-thumb:hover {
   background: #71717a;
+}
+
+/* Скрытие скроллбара для горизонтальных полос чипов */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }

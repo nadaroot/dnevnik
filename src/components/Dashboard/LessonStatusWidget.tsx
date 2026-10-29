@@ -3,16 +3,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock,
-  BookOpen,
-  Calendar,
   Coffee,
-  CheckCircle2,
   Bell,
   Sparkles,
   MapPin,
-  ArrowRight,
 } from 'lucide-react';
 import { DaySchedule, LessonItem, QuarterInfo } from '@/lib/eschools/types';
+import { normalizeDayLessons, THURSDAY_INFO_HOUR } from '@/lib/eschools/bells';
 
 interface LessonStatusWidgetProps {
   schedule: DaySchedule[];
@@ -22,6 +19,7 @@ interface LessonStatusWidgetProps {
 
 export type SchoolStatusType =
   | 'lesson_active'
+  | 'info_hour'
   | 'break'
   | 'before_school'
   | 'after_school'
@@ -53,24 +51,21 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
   quarters,
   currentQuarter,
 }) => {
-  // Текущее время с обновлением раз в 30 секунд
+  // Текущее время с обновлением раз в 15 секунд
   const [now, setNow] = useState<Date>(() => new Date());
 
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());
-    }, 30000);
+    }, 15000);
     return () => clearInterval(timer);
   }, []);
 
   const status: SchoolStatusState = useMemo(() => {
     const currentTimeMs = now.getTime();
-    const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1; // 1-12
-    const currentDayOfMonth = now.getDate();
 
     // 1. ПРОВЕРКА НА КАНИКУЛЫ
-    // Проверяем, попадает ли текущая дата в диапазон активных четвертей
     const activeQuarter = quarters.find((q) => q.number === currentQuarter) || quarters[0];
     let isInsideAnyQuarter = false;
 
@@ -78,7 +73,6 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
       for (const q of quarters) {
         if (q.startDate && q.endDate) {
           const qStart = new Date(q.startDate).getTime();
-          // Добавляем 1 день к endDate для включения последнего дня
           const qEnd = new Date(q.endDate).getTime() + 24 * 60 * 60 * 1000;
           if (currentTimeMs >= qStart && currentTimeMs <= qEnd) {
             isInsideAnyQuarter = true;
@@ -88,9 +82,7 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
       }
     }
 
-    // Если дата вне четвертей — каникулы!
     if (!isInsideAnyQuarter && quarters.length > 0) {
-      // Определяем сезон каникул по месяцу
       let vacationName = 'Каникулы';
       if (currentMonth === 10 || currentMonth === 11) vacationName = 'Осенние каникулы';
       else if (currentMonth === 12 || currentMonth === 1) vacationName = 'Зимние каникулы';
@@ -101,7 +93,11 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
         type: 'vacation',
         badge: 'Каникулы',
         headline: vacationName,
-        detail: `Занятий нет. Следующая четверть: ${activeQuarter?.startDate ? activeQuarter.startDate.split('-').reverse().join('.') : 'скоро'}`,
+        detail: `Занятий нет. Следующая четверть: ${
+          activeQuarter?.startDate
+            ? activeQuarter.startDate.split('-').reverse().join('.')
+            : 'скоро'
+        }`,
       };
     }
 
@@ -109,12 +105,15 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
     const jsDay = now.getDay(); // 0 = Вс, 1 = Пн, ... 6 = Сб
     const todayDaySchedule = schedule.find((d) => d.dayOfWeek === jsDay);
 
-    if (jsDay === 0 || (jsDay === 6 && (!todayDaySchedule || todayDaySchedule.lessons.length === 0))) {
+    if (
+      jsDay === 0 ||
+      (jsDay === 6 && (!todayDaySchedule || todayDaySchedule.lessons.length === 0))
+    ) {
       return {
         type: 'weekend',
         badge: 'Выходной',
         headline: jsDay === 0 ? 'Воскресенье' : 'Суббота',
-        detail: 'Уроков сегодня нет. Ближайшие занятия в понедельник',
+        detail: 'Уроков сегодня нет. Ближайшие занятия в понедельник в 08:00',
       };
     }
 
@@ -129,7 +128,8 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
     }
 
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const sortedLessons = [...todayDaySchedule.lessons].sort(
+    const normalizedLessons = normalizeDayLessons(jsDay, todayDaySchedule.lessons);
+    const sortedLessons = [...normalizedLessons].sort(
       (a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime)
     );
 
@@ -138,6 +138,46 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
 
     const firstStartMin = parseTimeToMinutes(firstLesson.startTime);
     const lastEndMin = parseTimeToMinutes(lastLesson.endTime);
+
+    // ОСОБЕННОСТЬ ЧЕТВЕРГА: Информационный час 08:00 – 08:20 (уроки смещены на +20 мин)
+    if (jsDay === 4) {
+      const infoStartMin = parseTimeToMinutes(THURSDAY_INFO_HOUR.startTime); // 480 (08:00)
+      const infoEndMin = parseTimeToMinutes(THURSDAY_INFO_HOUR.endTime); // 500 (08:20)
+
+      if (currentMinutes < infoStartMin) {
+        const minutesUntil = infoStartMin - currentMinutes;
+        const hoursUntil = Math.floor(minutesUntil / 60);
+        const remMin = minutesUntil % 60;
+        const timeStr = hoursUntil > 0 ? `${hoursUntil} ч ${remMin} мин` : `${remMin} мин`;
+
+        return {
+          type: 'before_school',
+          badge: 'Четверг (+20 мин)',
+          headline: `Инф. час в 08:00 • 1 ур. в ${firstLesson.startTime}`,
+          detail: `Через ${timeStr} • 1 ур: ${firstLesson.subject}${
+            firstLesson.room ? ` (каб. ${firstLesson.room})` : ''
+          }`,
+          nextLesson: firstLesson,
+          minutesRemaining: minutesUntil,
+        };
+      }
+
+      if (currentMinutes >= infoStartMin && currentMinutes < infoEndMin) {
+        const minutesLeft = infoEndMin - currentMinutes;
+        const elapsed = currentMinutes - infoStartMin;
+        const progress = Math.min(100, Math.round((elapsed / 20) * 100));
+
+        return {
+          type: 'info_hour',
+          badge: 'Инф. час идет',
+          headline: 'Информационный час (08:00 – 08:20)',
+          detail: `До 1-го урока (${firstLesson.subject}): ${minutesLeft} мин`,
+          nextLesson: firstLesson,
+          minutesRemaining: minutesLeft,
+          progressPercent: progress,
+        };
+      }
+    }
 
     // А. ДО НАЧАЛА УРОКОВ
     if (currentMinutes < firstStartMin) {
@@ -150,19 +190,21 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
         type: 'before_school',
         badge: 'Скоро уроки',
         headline: `Начало в ${firstLesson.startTime}`,
-        detail: `Через ${timeStr} • 1 ур: ${firstLesson.subject}${firstLesson.room ? ` (каб. ${firstLesson.room})` : ''}`,
+        detail: `Через ${timeStr} • 1 ур: ${firstLesson.subject}${
+          firstLesson.room ? ` (каб. ${firstLesson.room})` : ''
+        }`,
         nextLesson: firstLesson,
         minutesRemaining: minutesUntil,
       };
     }
 
     // Б. ПОСЛЕ ОКОНЧАНИЯ ВСЕХ УРОКОВ
-    if (currentMinutes >= lastEndMin) {
+    if (lastEndMin > 0 && currentMinutes >= lastEndMin) {
       return {
         type: 'after_school',
         badge: 'Занятия окончены',
         headline: 'Уроки на сегодня завершены',
-        detail: `Все ${sortedLessons.length} уроков окончены. Отличного вечера!`,
+        detail: `Все ${sortedLessons.length} ур. окончены в ${lastLesson.endTime}. Отличного отдыха!`,
       };
     }
 
@@ -172,7 +214,7 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
       const startMin = parseTimeToMinutes(lesson.startTime);
       const endMin = parseTimeToMinutes(lesson.endTime);
 
-      // ИДЕТ УРОК
+      // ИДЕТ УРОК (45 минут)
       if (currentMinutes >= startMin && currentMinutes < endMin) {
         const minutesLeft = endMin - currentMinutes;
         const totalDuration = Math.max(1, endMin - startMin);
@@ -181,9 +223,11 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
 
         return {
           type: 'lesson_active',
-          badge: `${lesson.lessonNumber} урок идет`,
+          badge: `${lesson.lessonNumber} урок (${lesson.startTime}–${lesson.endTime})`,
           headline: lesson.subject,
-          detail: `До звонка: ${minutesLeft} мин • ${lesson.room ? `Кабинет ${lesson.room}` : 'Кабинет не указан'}`,
+          detail: `До звонка с урока: ${minutesLeft} мин${
+            lesson.room ? ` • Каб. ${lesson.room}` : ''
+          }`,
           currentLesson: lesson,
           minutesRemaining: minutesLeft,
           progressPercent: progress,
@@ -205,9 +249,11 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
 
           return {
             type: 'break',
-            badge: 'Перемена',
-            headline: `Перемена (${breakLeft} мин до звонка)`,
-            detail: `След: ${nextLesson.lessonNumber}. ${nextLesson.subject}${nextLesson.room ? ` (каб. ${nextLesson.room})` : ''}`,
+            badge: `Перемена до ${nextLesson.startTime}`,
+            headline: `Перемена (${breakLeft} мин до ${nextLesson.lessonNumber} урока)`,
+            detail: `Далее в ${nextLesson.startTime}: ${nextLesson.lessonNumber}. ${
+              nextLesson.subject
+            }${nextLesson.room ? ` (каб. ${nextLesson.room})` : ''}`,
             nextLesson,
             minutesRemaining: breakLeft,
             progressPercent: breakProgress,
@@ -227,15 +273,15 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
   return (
     <div className="p-5 rounded-lg bg-surface border border-surface-border flex flex-col justify-between">
       <div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <span className="text-xs uppercase tracking-wider text-zinc-400 font-mono flex items-center gap-1.5">
-            {status.type === 'lesson_active' ? (
+            {status.type === 'lesson_active' || status.type === 'info_hour' ? (
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-zinc-200 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-zinc-100" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
               </span>
             ) : status.type === 'break' ? (
-              <Bell className="w-3.5 h-3.5 text-zinc-400" />
+              <Bell className="w-3.5 h-3.5 text-yellow-400" />
             ) : status.type === 'vacation' ? (
               <Sparkles className="w-3.5 h-3.5 text-zinc-400" />
             ) : status.type === 'weekend' ? (
@@ -243,15 +289,15 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
             ) : (
               <Clock className="w-3.5 h-3.5 text-zinc-400" />
             )}
-            Расписание сейчас
+            Звонки сейчас
           </span>
 
           <span
-            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-              status.type === 'lesson_active'
+            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border shrink-0 ${
+              status.type === 'lesson_active' || status.type === 'info_hour'
                 ? 'bg-zinc-100 text-zinc-950 border-zinc-100'
                 : status.type === 'break'
-                ? 'bg-zinc-800 text-zinc-200 border-zinc-700'
+                ? 'bg-yellow-400/20 text-yellow-300 border-yellow-500/40'
                 : 'bg-surface-subtle text-zinc-400 border-surface-border'
             }`}
           >
@@ -261,7 +307,7 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
 
         {/* Главный заголовок состояния */}
         <div className="mt-3">
-          <div className="text-lg md:text-xl font-bold text-zinc-100 tracking-tight truncate">
+          <div className="text-base md:text-lg font-bold text-zinc-100 tracking-tight truncate">
             {status.headline}
           </div>
           <p className="text-xs text-zinc-400 mt-1 font-mono leading-relaxed line-clamp-2">
@@ -271,14 +317,20 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
 
         {/* Прогресс-бар идущего урока или перемены */}
         {typeof status.progressPercent === 'number' && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono mb-1">
-              <span>До звонка</span>
-              <span className="text-zinc-300 font-bold">{status.minutesRemaining} мин</span>
+          <div className="mt-3.5">
+            <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono mb-1">
+              <span>
+                {status.type === 'break'
+                  ? 'До начала урока'
+                  : status.type === 'info_hour'
+                  ? 'До конца инф. часа'
+                  : 'До конца урока (45 мин)'}
+              </span>
+              <span className="text-zinc-100 font-bold">осталось {status.minutesRemaining} мин</span>
             </div>
             <div className="w-full h-1.5 bg-surface-muted rounded-full overflow-hidden border border-surface-border">
               <div
-                className="h-full bg-zinc-200 rounded-full transition-all duration-500"
+                className="h-full bg-zinc-100 rounded-full transition-all duration-500"
                 style={{ width: `${status.progressPercent}%` }}
               />
             </div>
@@ -294,14 +346,16 @@ export const LessonStatusWidget: React.FC<LessonStatusWidgetProps> = ({
             Кабинет {status.room}
           </span>
         ) : status.type === 'break' && status.nextLesson ? (
-          <span className="text-zinc-300 truncate">
+          <span className="text-zinc-300 truncate pr-2">
             Далее: {status.nextLesson.subject}
           </span>
         ) : (
-          <span>Текущее время: {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
+          <span>
+            Время: {now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+          </span>
         )}
 
-        <span className="text-zinc-400">
+        <span className="text-zinc-400 shrink-0">
           {now.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' })}
         </span>
       </div>

@@ -71,8 +71,14 @@ export const AccountManager: React.FC<AccountManagerProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-xl bg-zinc-950 border border-surface-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-xl bg-zinc-950 border border-surface-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Шапка модалки */}
         <div className="p-4 border-b border-surface-border flex items-center justify-between">
           <div className="flex items-center gap-2.5">

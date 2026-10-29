@@ -24,6 +24,7 @@ interface SidebarProps {
   projectedGpa?: number;
   onOpenAccounts?: () => void;
   accountsCount?: number;
+  isAdmin?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -34,10 +35,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   projectedGpa,
   onOpenAccounts,
   accountsCount = 1,
+  isAdmin: isAdminProp,
 }) => {
   const isAdmin =
+    isAdminProp ||
     profile.isAdmin ||
-    profile.login?.toLowerCase() === 'nadaroot';
+    profile.login?.toLowerCase() === 'nadaroot' ||
+    profile.studentName?.toLowerCase().includes('шипалов');
 
   const navItems: { id: NavTab; label: string; icon: React.ElementType; badge?: string }[] = [
     { id: 'dashboard', label: 'Главная', icon: LayoutDashboard },

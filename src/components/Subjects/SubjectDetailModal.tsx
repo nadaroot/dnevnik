@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { X, Calendar, BookOpen, Activity } from 'lucide-react';
+import { X, Activity, Calculator } from 'lucide-react';
 import { SubjectItem } from '@/lib/eschools/types';
 import { getGradeBadgeClasses, formatDateRu } from '@/lib/utils';
 import { StrategyCalculator } from './StrategyCalculator';
@@ -10,14 +10,15 @@ interface SubjectDetailModalProps {
   subject: SubjectItem | null;
   onClose: () => void;
   onUpdateTarget?: (subjectId: string, target: number) => void;
+  onOpenCalculator?: (subject: SubjectItem) => void;
 }
 
 export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
   subject,
   onClose,
   onUpdateTarget,
+  onOpenCalculator,
 }) => {
-  // Блокируем скролл body — предотвращает rubber-band отскок на iOS Safari
   useEffect(() => {
     if (subject) {
       document.body.classList.add('modal-open');
@@ -32,7 +33,7 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
   const badge = getGradeBadgeClasses(Math.round(subject.currentAverage));
 
   // Построение мини-графика для предмета
-  const grades = subject.grades;
+  const grades = subject.grades || [];
   const width = 400;
   const height = 100;
   const paddingX = 25;
@@ -55,15 +56,18 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
   const points = grades.map((g, i) => `${getX(i)},${getY(g.value)}`).join(' ');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm select-none">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-lg max-h-[90vh] bg-surface rounded-xl border border-surface-border shadow-2xl flex flex-col overflow-hidden"
+        className="w-full sm:max-w-lg max-h-[88vh] bg-zinc-950 rounded-t-2xl sm:rounded-xl border border-surface-border shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Заголовок модального окна */}
-        <div className="p-4 border-b border-surface-border flex items-center justify-between">
-          <div className="min-w-0 pr-4">
-            <h2 className="text-sm md:text-base font-semibold text-zinc-100 truncate">
+        <div className="p-4 border-b border-surface-border flex items-center justify-between bg-surface shrink-0 gap-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm md:text-base font-bold text-zinc-100 truncate">
               {subject.name}
             </h2>
             {subject.teacher && (
@@ -73,15 +77,32 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <div
-              className={`px-2.5 py-1 rounded text-xs font-mono font-bold border ${badge.bg} ${badge.text} ${badge.border}`}
-            >
-              {subject.currentAverage.toFixed(2)}
-            </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onOpenCalculator && subject.isGraded !== false && (
+              <button
+                type="button"
+                onClick={() => {
+                  const s = subject;
+                  onClose();
+                  onOpenCalculator(s);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-mono bg-surface-subtle border border-surface-border text-zinc-200 hover:text-white active:scale-95"
+              >
+                <Calculator className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Калькулятор</span>
+              </button>
+            )}
+            {grades.length > 0 && (
+              <div
+                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border ${badge.bg} ${badge.text} ${badge.border}`}
+              >
+                {subject.currentAverage.toFixed(2)}
+              </div>
+            )}
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded hover:bg-surface-subtle text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="p-1.5 rounded-lg hover:bg-surface-subtle text-zinc-400 hover:text-zinc-200 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -89,24 +110,20 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
         </div>
 
         {/* Прокручиваемый контент */}
-        <div
-          className="modal-scroll flex-1 overflow-y-auto p-4 space-y-4"
-          style={{ overscrollBehavior: 'contain', touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
-        >
+        <div className="modal-scroll flex-1 min-h-0 overflow-y-auto p-4 pb-8 space-y-4">
           {/* График отметок по предмету */}
           {grades.length > 0 && (
-            <div className="p-3 rounded-lg bg-surface-subtle border border-surface-border">
+            <div className="p-3 rounded-lg bg-surface border border-surface-border">
               <div className="flex items-center justify-between text-xs text-zinc-400 font-mono mb-2">
                 <span className="flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5" />
                   Хронология оценок
                 </span>
-                <span>Шкала: 1 - 10</span>
+                <span>Шкала: 1 – 10</span>
               </div>
 
               <div className="w-full aspect-[4/1]">
                 <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full">
-                  {/* Горизонтальные линии для отметок 5 и 8 */}
                   {[5, 8].map((lineVal) => (
                     <line
                       key={lineVal}
@@ -139,17 +156,19 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
                         stroke="#ffffff"
                         strokeWidth="1.5"
                       />
-                      <text
-                        x={getX(i)}
-                        y={getY(g.value) - 6}
-                        textAnchor="middle"
-                        fill="#f4f4f5"
-                        fontSize="9"
-                        fontFamily="monospace"
-                        fontWeight="bold"
-                      >
-                        {g.value}
-                      </text>
+                      {grades.length <= 16 && (
+                        <text
+                          x={getX(i)}
+                          y={getY(g.value) - 6}
+                          textAnchor="middle"
+                          fill="#f4f4f5"
+                          fontSize="9"
+                          fontFamily="monospace"
+                          fontWeight="bold"
+                        >
+                          {g.value}
+                        </text>
+                      )}
                     </g>
                   ))}
                 </svg>
@@ -164,21 +183,24 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
             </div>
 
             {grades.length === 0 ? (
-              <div className="p-4 text-center text-xs text-zinc-500 font-mono">
+              <div className="p-4 text-center text-xs text-zinc-500 font-mono rounded-lg bg-surface border border-surface-border">
                 Оценок по этому предмету пока нет
               </div>
             ) : (
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {grades.map((grade) => {
+              <div className="space-y-1.5">
+                {grades.map((grade, idx) => {
                   const gBadge = getGradeBadgeClasses(grade.value);
                   return (
                     <div
-                      key={grade.id}
-                      className="flex items-center justify-between p-2.5 rounded bg-surface-subtle border border-surface-border text-xs"
+                      key={grade.id || idx}
+                      className="flex items-center justify-between p-2.5 rounded-lg bg-surface border border-surface-border text-xs"
                     >
                       <div className="min-w-0 pr-2">
                         <div className="font-medium text-zinc-200 truncate">
-                          {grade.topic || (grade.type === 'control' ? 'Контрольная работа' : 'Ответ на уроке')}
+                          {grade.topic ||
+                            (grade.type === 'control'
+                              ? 'Контрольная работа'
+                              : 'Отметка за урок')}
                         </div>
                         <div className="text-[11px] text-zinc-500 font-mono mt-0.5">
                           {formatDateRu(grade.date)}
@@ -186,7 +208,7 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
                       </div>
 
                       <div
-                        className={`w-7 h-7 rounded flex items-center justify-center font-mono font-bold text-xs border shrink-0 ${gBadge.bg} ${gBadge.text} ${gBadge.border}`}
+                        className={`w-7 h-7 rounded-md flex items-center justify-center font-mono font-bold text-xs border shrink-0 ${gBadge.bg} ${gBadge.text} ${gBadge.border}`}
                       >
                         {grade.value}
                       </div>
@@ -198,10 +220,12 @@ export const SubjectDetailModal: React.FC<SubjectDetailModalProps> = ({
           </div>
 
           {/* Калькулятор стратегии */}
-          <StrategyCalculator
-            subject={subject}
-            onUpdateTarget={(val) => onUpdateTarget?.(subject.id, val)}
-          />
+          {subject.isGraded !== false && (
+            <StrategyCalculator
+              subject={subject}
+              onUpdateTarget={(val) => onUpdateTarget?.(subject.id, val)}
+            />
+          )}
         </div>
       </div>
     </div>

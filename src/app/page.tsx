@@ -11,6 +11,7 @@ import { CriticalSubjects } from '@/components/Dashboard/CriticalSubjects';
 import { GradesAnalytics } from '@/components/Dashboard/GradesAnalytics';
 import { AveragesTable } from '@/components/Averages/AveragesTable';
 import { SubjectList } from '@/components/Subjects/SubjectList';
+import { SubjectDetailModal } from '@/components/Subjects/SubjectDetailModal';
 import { WeekSchedule } from '@/components/Schedule/WeekSchedule';
 import { AccountSettings } from '@/components/Settings/AccountSettings';
 import { AdminPanel } from '@/components/Admin/AdminPanel';
@@ -839,7 +840,6 @@ export default function HomePage() {
 
   const handleOpenSubjectFromDashboard = (subject: SubjectItem) => {
     setSelectedSubject(subject);
-    setActiveTab('subjects');
   };
 
   const isAdmin =
@@ -876,6 +876,7 @@ export default function HomePage() {
         projectedGpa={projectedStats?.projectedGpa}
         onOpenAccounts={() => setIsAccountsOpen(true)}
         accountsCount={savedAccounts.length || 1}
+        isAdmin={isAdmin}
       />
 
       {/* Основная рабочая область */}
@@ -1124,6 +1125,14 @@ export default function HomePage() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         isAdmin={isAdmin}
+      />
+
+      {/* Детальное модальное окно предмета (открывается поверх любой вкладки без сброса позиции) */}
+      <SubjectDetailModal
+        subject={selectedSubject}
+        onClose={() => setSelectedSubject(null)}
+        onUpdateTarget={handleSaveTarget}
+        onOpenCalculator={handleOpenCalculator}
       />
 
       {/* Модальное окно ручной установки и изменения цели */}

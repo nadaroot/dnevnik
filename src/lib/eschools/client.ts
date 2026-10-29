@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import { DiaryData, SubjectItem, GradeEntry, DaySchedule, LessonItem, QuarterInfo, SubjectPeriodType, WeekScheduleData } from './types';
 import { calculateAverage } from './calculator';
+import { getBellSlot } from './bells';
 
 export interface ESchoolsCredentials {
   login: string;
@@ -407,13 +408,15 @@ export class ESchoolsClient {
               gradeTopic = slot.topic || slot.lesson_mark.comment || undefined;
             }
           }
+          const lessonNum = slot.number || 1;
+          const bellSlot = getBellSlot(d.day_of_week, lessonNum);
           return {
             id: slot.lesson_uuid,
-            lessonNumber: slot.number,
-            startTime: (slot.start_time || '').slice(0, 5),
-            endTime: '',
+            lessonNumber: lessonNum,
+            startTime: bellSlot.startTime,
+            endTime: bellSlot.endTime,
             subject: slot.subject_title || '',
-            room: '',
+            room: slot.cabinet || slot.room || '',
             homework: slot.homework || undefined,
             grade: gradeVal,
             gradeTopic: gradeTopic,
