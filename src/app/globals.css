@@ -44,7 +44,7 @@ body {
 }
 
 .pt-safe {
-  padding-top: max(env(safe-area-inset-top, 0px), 0.75rem);
+  padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
 }
 
 /* Блокировка прокрутки фона при открытии модального окна (БЕЗ touch-action:none и БЕЗ position:fixed, чтобы не ломать скролл внутри модалок на телефоне) */

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getRegisteredUsers,
+  getRegisteredUsersAsync,
   saveRegisteredUser,
   deleteRegisteredUser,
   getAuditLogs,
+  getAuditLogsAsync,
 } from '@/lib/eschools/userRegistry';
 
 export const dynamic = 'force-dynamic';
@@ -60,7 +62,7 @@ export async function GET(req: NextRequest) {
           if (proxyData && Array.isArray(proxyData.users)) {
             const localUsers = getRegisteredUsers();
             const combinedMap = new Map();
-            localUsers.forEach((u) => combinedMap.set(u.login.toLowerCase(), u));
+            localUsers.forEach((u: any) => combinedMap.set(u.login.toLowerCase(), u));
             proxyData.users.forEach((u: any) => {
               if (u && u.login) combinedMap.set(u.login.toLowerCase(), u);
             });
@@ -79,8 +81,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const users = getRegisteredUsers();
-    const auditLogs = getAuditLogs(50);
+    const users = await getRegisteredUsersAsync();
+    const auditLogs = await getAuditLogsAsync(50);
     return NextResponse.json(
       { success: true, users, auditLogs },
       { headers: CORS_HEADERS }

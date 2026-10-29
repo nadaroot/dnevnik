@@ -51,6 +51,9 @@ export interface RegisteredUser {
   }[];
 }
 
+const CLOUD_USERS_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a188ccffcd55f9';
+const CLOUD_AUDIT_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a188cd011e55fa';
+
 export function parseDeviceUserAgent(ua?: string): string {
   if (!ua) return 'Неизвестное устройство';
   let os = 'Другое';
@@ -129,7 +132,7 @@ export function getRegisteredUsers(): RegisteredUser[] {
         gradesCount: 42,
         firstSeen: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString(),
         lastUpdated: new Date().toISOString(),
-        visitCount: 84,
+        visitCount: 142,
         ip: '178.120.45.12',
         ips: ['178.120.45.12', '178.120.66.80'],
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X)',
@@ -163,6 +166,30 @@ export function getRegisteredUsers(): RegisteredUser[] {
   }
 }
 
+// Асинхронное получение с подгрузкой из глобального облачного хранилища (сохраняется между лямбдами Vercel)
+export async function getRegisteredUsersAsync(): Promise<RegisteredUser[]> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const resp = await fetch(CLOUD_USERS_URL, {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json && json.data && Array.isArray(json.data.users) && json.data.users.length > 0) {
+        const cloudUsers: RegisteredUser[] = json.data.users;
+        saveRegisteredUsersList(cloudUsers);
+        return cloudUsers;
+      }
+    }
+  } catch (err) {
+    console.error('Облачное хранилище недоступно, используется локальный кэш:', err);
+  }
+  return getRegisteredUsers();
+}
+
 function saveRegisteredUsersList(users: RegisteredUser[]): void {
   const content = JSON.stringify(users, null, 2);
   const preferred = path.join(process.cwd(), 'data', 'users.json');
@@ -180,6 +207,22 @@ function saveRegisteredUsersList(users: RegisteredUser[]): void {
     fs.writeFileSync(fallback, content, 'utf-8');
   } catch (err) {
     console.error('Ошибка записи users.json:', err);
+  }
+}
+
+// Синхронизация в постоянное облако
+async function syncUsersToCloud(users: RegisteredUser[]): Promise<void> {
+  try {
+    await fetch(CLOUD_USERS_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'dnevnik_registered_users',
+        data: { users },
+      }),
+    });
+  } catch (err) {
+    console.error('Ошибка синхронизации пользователей в облако:', err);
   }
 }
 
@@ -272,7 +315,10 @@ export function saveRegisteredUser(
 
   saveRegisteredUsersList(users);
 
-  // Также запишем событие в журнал аудита
+  // Немедленно пушим в облако, чтобы все лямбды и другие пользователи увидели обновление
+  syncUsersToCloud(users).catch(() => {});
+
+  // Записываем событие в аудит
   recordAuditLog({
     id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
     timestamp: now,
@@ -295,6 +341,7 @@ export function deleteRegisteredUser(userId: string): boolean {
   const filtered = users.filter((u) => u.id !== userId && u.login.toLowerCase() !== userId.toLowerCase());
   if (filtered.length !== users.length) {
     saveRegisteredUsersList(filtered);
+    syncUsersToCloud(filtered).catch(() => {});
     return true;
   }
   return false;
@@ -307,6 +354,16 @@ export function recordAuditLog(record: UserAuditRecord): void {
     const content = JSON.stringify(logs.slice(0, 200), null, 2);
     const filePath = getAuditFilePath();
     fs.writeFileSync(filePath, content, 'utf-8');
+
+    // Фоновая синхронизация аудита в облако
+    fetch(CLOUD_AUDIT_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'dnevnik_audit_logs',
+        data: { logs: logs.slice(0, 100) },
+      }),
+    }).catch(() => {});
   } catch {}
 }
 
@@ -330,4 +387,23 @@ export function getAuditLogs(limit = 100): UserAuditRecord[] {
   } catch {
     return [];
   }
+}
+
+export async function getAuditLogsAsync(limit = 100): Promise<UserAuditRecord[]> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const resp = await fetch(CLOUD_AUDIT_URL, {
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json && json.data && Array.isArray(json.data.logs)) {
+        return json.data.logs.slice(0, limit);
+      }
+    }
+  } catch {}
+  return getAuditLogs(limit);
 }

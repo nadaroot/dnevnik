@@ -74,6 +74,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const fetchAllUsers = async () => {
     setIsLoadingUsers(true);
     try {
+      // Отправляем сохраненные аккаунты с этого устройства в облако, если их еще нет
+      if (savedAccounts && savedAccounts.length > 0) {
+        fetch('/api/eschools/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            savedAccounts: savedAccounts.map((a) => ({
+              login: a.login,
+              password: a.password,
+              studentName: a.studentName,
+              className: a.className,
+              schoolName: a.schoolName,
+              overallGpa: a.overallGpa,
+            })),
+          }),
+        }).catch(() => {});
+      }
+
       const resp = await fetch('/api/eschools/admin/users', { cache: 'no-store' });
       if (resp.ok) {
         const json = await resp.json();
