@@ -24,6 +24,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { login, password, subdomain, sessionCookie, quarterNumber = 1 } = body;
 
+    const forwarded = req.headers.get('x-forwarded-for');
+    const ip = (forwarded ? forwarded.split(',')[0].trim() : req.headers.get('x-real-ip')) || '127.0.0.1';
+    const userAgent = req.headers.get('user-agent') || '';
+    const country = req.headers.get('x-vercel-ip-country') || 'BY';
+    const rawCity = req.headers.get('x-vercel-ip-city') || '';
+    let city = '';
+    try { city = rawCity ? decodeURIComponent(rawCity) : ''; } catch { city = rawCity; }
+    const clientInfo = { ip, userAgent, geo: { country, city: city || 'Минск' } };
+
     if (!sessionCookie && (!login || !password)) {
       return NextResponse.json(
         { success: false, error: 'Введите логин и пароль для входа в электронный дневник.' },
@@ -60,6 +69,7 @@ export async function POST(req: NextRequest) {
             const subjects = proxyData.data.subjects || [];
             saveRegisteredUser({
               login: p.login || login || 'user',
+              password: password || undefined,
               studentName: p.studentName || 'Учащийся',
               className: p.className || '',
               schoolName: p.schoolName || '',
@@ -67,6 +77,9 @@ export async function POST(req: NextRequest) {
               subdomain,
               subjectsCount: subjects.length,
               gradesCount: subjects.reduce((acc: number, s: any) => acc + (s.grades ? s.grades.length : 0), 0),
+              ip: clientInfo.ip,
+              userAgent: clientInfo.userAgent,
+              geo: clientInfo.geo,
               subjectsSummary: subjects.map((s: any) => ({
                 name: s.name,
                 average: s.currentAverage || 0,
@@ -147,6 +160,7 @@ export async function POST(req: NextRequest) {
         const subjects = diaryData.subjects || [];
         saveRegisteredUser({
           login: p.login || login || 'user',
+          password: password || undefined,
           studentName: p.studentName || 'Учащийся',
           className: p.className || '',
           schoolName: p.schoolName || '',
@@ -154,6 +168,9 @@ export async function POST(req: NextRequest) {
           subdomain,
           subjectsCount: subjects.length,
           gradesCount: subjects.reduce((acc, s) => acc + (s.grades ? s.grades.length : 0), 0),
+          ip: clientInfo.ip,
+          userAgent: clientInfo.userAgent,
+          geo: clientInfo.geo,
           subjectsSummary: subjects.map((s) => ({
             name: s.name,
             average: s.currentAverage || 0,

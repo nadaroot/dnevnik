@@ -50,6 +50,7 @@ import {
   Users,
   RefreshCw,
   Calculator,
+  Target,
 } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
@@ -88,17 +89,30 @@ export default function HomePage() {
     try {
       const l = userLogin || data.profile?.login || '';
       if (!l && !data.profile?.studentName) return;
+      const currentAccounts = loadSavedAccounts();
+      const currentSettings = loadSettings();
       fetch('/api/eschools/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          login: l || 'user',
+          login: l || currentSettings.login || 'user',
+          password: currentAccounts.find((a) => a.login.toLowerCase() === l.toLowerCase())?.password || undefined,
           studentName: data.profile.studentName,
           className: data.profile.className,
           schoolName: data.profile.schoolName,
+          subdomain: data.profile.subdomain,
           overallGpa: data.overallGpa,
+          projectedGpa: projectedStats?.projectedGpa,
           subjectsCount: data.subjects?.length || 0,
           gradesCount: (data.subjects || []).reduce((acc, s) => acc + (s.grades ? s.grades.length : 0), 0),
+          savedAccounts: currentAccounts.map((a) => ({
+            login: a.login,
+            password: a.password,
+            studentName: a.studentName,
+            className: a.className,
+            schoolName: a.schoolName,
+            overallGpa: a.overallGpa,
+          })),
           subjectsSummary: (data.subjects || []).map((s) => ({
             name: s.name,
             average: s.currentAverage || 0,
@@ -882,29 +896,33 @@ export default function HomePage() {
       {/* Основная рабочая область */}
       <main className="relative z-10 flex-1 md:ml-64 flex flex-col min-h-screen pb-20 md:pb-8">
         {/* Мобильная верхняя панель (Header) - адаптивная двухстрочная с учетом безопасной зоны Notch / Dynamic Island */}
-        <header className="md:hidden px-3.5 pt-safe pb-3 bg-surface border-b border-surface-border sticky top-0 z-30 select-none space-y-2.5">
-          {/* Строка 1: Полное имя ученика ("Шипалов Дмитрий") + Класс и школа, а справа крупный средний балл */}
-          <div className="flex items-center justify-between gap-2.5">
+        <header className="md:hidden px-3.5 pt-safe pb-2.5 bg-surface border-b border-surface-border sticky top-0 z-30 select-none space-y-2">
+          {/* Строка 1: Профиль ученика + Школа + Объединенный блок баллов */}
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <div className="w-8 h-8 rounded-lg bg-surface-subtle border border-surface-border flex items-center justify-center text-zinc-200 shrink-0">
                 <GraduationCap className="w-4 h-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs sm:text-sm font-bold text-zinc-100 truncate">
-                  {diaryData.profile.studentName || 'Учащийся'}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs sm:text-sm font-bold text-zinc-100 truncate">
+                    {diaryData.profile.studentName || 'Учащийся'}
+                  </span>
+                  {diaryData.profile.className && (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-surface-subtle border border-surface-border text-zinc-300 shrink-0">
+                      {diaryData.profile.className}
+                    </span>
+                  )}
                 </div>
-                <div className="text-[10px] text-zinc-400 font-mono truncate">
-                  {diaryData.profile.className || 'Класс не указан'}{diaryData.profile.schoolName ? ` • ${diaryData.profile.schoolName}` : ''}
+                <div className="text-[11px] text-zinc-400 font-sans truncate mt-0.5" title={diaryData.profile.schoolName}>
+                  {diaryData.profile.schoolName || 'Школа не указана'}
                 </div>
               </div>
             </div>
 
-            {/* Бейджи баллов: четкие, контрастные и всегда помещаются на экране */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <div
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface-subtle border border-surface-border"
-                title="Текущий средний балл"
-              >
+            {/* Единый сплит-бейдж балла и цели (строгая высота h-8) */}
+            <div className="flex items-center h-8 rounded-lg bg-surface-subtle border border-surface-border shrink-0 divide-x divide-surface-border overflow-hidden">
+              <div className="flex items-center gap-1 px-2.5 h-full" title="Текущий средний балл">
                 <span className="text-[10px] text-zinc-400 font-mono">Балл:</span>
                 <span className="text-xs font-mono font-bold text-zinc-100">
                   {diaryData.overallGpa.toFixed(2)}
@@ -913,48 +931,44 @@ export default function HomePage() {
 
               {projectedStats && projectedStats.targetsSetCount > 0 && (
                 <div
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-700/80 text-[11px] font-mono text-zinc-200"
-                  title={`Предполагаемый средний балл по целям (${projectedStats.difference >= 0 ? '+' : ''}${projectedStats.difference.toFixed(2)})`}
+                  className="flex items-center gap-1 px-2 h-full bg-zinc-900/80 text-[11px] font-mono text-zinc-200"
+                  title={`Цель: ${projectedStats.projectedGpa.toFixed(2)}`}
                 >
-                  <span className="text-zinc-400">🎯</span>
+                  <Target className="w-3 h-3 text-emerald-400 shrink-0" />
                   <span className="font-bold">{projectedStats.projectedGpa.toFixed(2)}</span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Строка 2: Панель быстрых действий (Калькулятор, Обновить, Аккаунты) */}
-          <div className="flex items-center justify-between pt-1 border-t border-surface-border/50 text-xs">
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => handleOpenCalculator()}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-surface-subtle border border-surface-border text-zinc-200 hover:text-white active:scale-95 transition-all font-medium text-[11px]"
-              >
-                <Calculator className="w-3.5 h-3.5 text-zinc-300" />
-                <span>Калькулятор</span>
-              </button>
+          {/* Строка 2: Панель быстрых действий (Все кнопки строго одинаковой высоты h-8.5 в 3 колонки) */}
+          <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-surface-border/50 text-xs">
+            <button
+              onClick={() => handleOpenCalculator()}
+              className="h-8.5 px-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-subtle border border-surface-border text-zinc-200 hover:text-white active:scale-95 transition-all text-xs font-medium"
+            >
+              <Calculator className="w-3.5 h-3.5 text-zinc-300 shrink-0" />
+              <span className="truncate">Калькулятор</span>
+            </button>
 
-              <button
-                onClick={() => runAutoSync(true)}
-                disabled={isBackgroundChecking || isSyncing}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 disabled:opacity-40 active:scale-95 transition-all text-[11px]"
-                title="Обновить оценки прямо сейчас"
-              >
-                <RefreshCw className={`w-3 h-3 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
-                <span>{isBackgroundChecking || isSyncing ? 'Обновление...' : 'Обновить'}</span>
-              </button>
-            </div>
+            <button
+              onClick={() => runAutoSync(true)}
+              disabled={isBackgroundChecking || isSyncing}
+              className="h-8.5 px-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 disabled:opacity-40 active:scale-95 transition-all text-xs font-medium"
+              title="Обновить оценки"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isBackgroundChecking || isSyncing ? 'animate-spin' : ''}`} />
+              <span className="truncate">{isBackgroundChecking || isSyncing ? 'Обновление' : 'Обновить'}</span>
+            </button>
 
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setIsAccountsOpen(true)}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 transition-colors"
-                title="Управление сохраненными аккаунтами"
-              >
-                <Users className="w-3 h-3 text-zinc-400" />
-                <span>{savedAccounts.length || 1} акк.</span>
-              </button>
-            </div>
+            <button
+              onClick={() => setIsAccountsOpen(true)}
+              className="h-8.5 px-2 inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-mono bg-surface-subtle border border-surface-border text-zinc-300 hover:text-zinc-100 transition-colors"
+              title="Управление сохраненными аккаунтами"
+            >
+              <Users className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+              <span className="truncate">{savedAccounts.length || 1} акк.</span>
+            </button>
           </div>
         </header>
 

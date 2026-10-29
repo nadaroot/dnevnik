@@ -541,9 +541,16 @@ export const AveragesTable: React.FC<AveragesTableProps> = ({
                           e.stopPropagation();
                           onOpenTargetModal?.(s);
                         }}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-300 bg-surface-subtle border border-surface-border hover:border-zinc-600"
+                        className="h-6 px-1.5 rounded text-[10px] font-mono text-zinc-300 bg-surface-subtle border border-surface-border hover:border-zinc-600 flex items-center gap-1 shrink-0"
                       >
-                        {s.targetGrade ? `🎯 ${s.targetGrade}` : '+ Цель'}
+                        {s.targetGrade ? (
+                          <>
+                            <Target className="w-2.5 h-2.5 text-emerald-400" />
+                            <span>{s.targetGrade}</span>
+                          </>
+                        ) : (
+                          <span>+ Цель</span>
+                        )}
                       </button>
                     )}
 
@@ -654,9 +661,10 @@ export const AveragesTable: React.FC<AveragesTableProps> = ({
                                 e.stopPropagation();
                                 onOpenTargetModal?.(s);
                               }}
-                              className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-200 border border-zinc-600"
+                              className="h-6 px-2 rounded text-[10px] font-mono bg-zinc-800 text-zinc-200 border border-zinc-600 inline-flex items-center gap-1"
                             >
-                              Цель: {s.targetGrade}
+                              <Target className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                              <span>Цель: {s.targetGrade}</span>
                             </button>
                           ) : (
                             <button
@@ -664,9 +672,9 @@ export const AveragesTable: React.FC<AveragesTableProps> = ({
                                 e.stopPropagation();
                                 onOpenTargetModal?.(s);
                               }}
-                              className="px-2 py-0.5 rounded text-[10px] font-mono text-zinc-400 border border-dashed border-zinc-700"
+                              className="h-6 px-2 rounded text-[10px] font-mono text-zinc-400 border border-dashed border-zinc-700 inline-flex items-center gap-1"
                             >
-                              + Цель
+                              <span>+ Цель</span>
                             </button>
                           )}
 

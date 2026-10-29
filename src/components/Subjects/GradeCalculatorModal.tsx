@@ -389,7 +389,7 @@ export const GradeCalculatorModal: React.FC<GradeCalculatorModalProps> = ({
                         )}`}
                       >
                         <span>+{val}</span>
-                        <span className="text-[10px] opacity-70">✕</span>
+                        <X className="w-2.5 h-2.5 opacity-70" />
                       </button>
                     ))}
                   </div>
